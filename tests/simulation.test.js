@@ -18,3 +18,20 @@ test('wave solver remains finite at maximum wind and repeated disturbances',()=>
 test('waves propagate to the pool wall and decay without forcing',()=>{const w=new WaveField();w.energy=0;w.disturb(.5,.5,2,.15);for(let i=0;i<160;i++)w.integrate();assert.ok(Math.abs(w.height[48*w.size])>.0001);const energy=()=>w.height.reduce((s,h)=>s+h*h,0)+w.velocity.reduce((s,v)=>s+v*v,0);const initial=energy();for(let i=0;i<2400;i++)w.integrate();assert.ok(energy()<initial*.01);});
 test('fixed stepping is independent of render rate',()=>{const a=new WaveField(33),b=new WaveField(33);a.disturb(.5,.5);b.disturb(.5,.5);for(let i=0;i<120;i++)a.step(1/120);for(let i=0;i<30;i++)b.step(1/30);assert.deepEqual(a.height,b.height);});
 test('touching spheres can move apart without sticking',()=>{const p=new CollisionScene(R),a=object('sphere',-3,3),b=object('sphere',-1.5,3);p.objects=[a,b];assert.equal(p.canTravel(a,new THREE.Vector3(-3.5,.75,3)),true);assert.equal(p.canTravel(a,new THREE.Vector3(-2.5,.75,3)),false);});
+test('grid movement ends flush against the actual surface, without jumping through it',()=>{
+ for(const type of ['box','sphere','cylinder','pebble']){
+  const p=new CollisionScene(R),a=object(type,-6,3),b=object(type,-3,3);p.objects=[a,b];
+  assert.equal(p.move(a,new THREE.Vector3(0,a.mesh.position.y,3)),true);
+  const contact=a.parts[0].shape.contactShape(a.mesh.position,a.mesh.quaternion,b.parts[0].shape,b.mesh.position,b.mesh.quaternion,.01);
+  assert.ok(contact&&Math.abs(contact.distance)<.001,`${type} should touch, gap ${contact?.distance}`);
+  assert.ok(a.mesh.position.x<b.mesh.position.x);assert.ok(p.canPlace(a,a.mesh.position));
+  assert.equal(p.move(a,a.mesh.position.clone().add(new THREE.Vector3(-.5,0,0))),true,'can pull away from contact');
+ }
+});
+test('flush blocks can slide along their shared face',()=>{
+ const p=new CollisionScene(R),a=object('box',-6,3),b=object('box',-3,3);p.objects=[a,b];
+ p.move(a,new THREE.Vector3(-4,.675,3));
+ assert.ok(Math.abs(a.mesh.position.x+4.35)<.001);
+ assert.equal(p.move(a,a.mesh.position.clone().add(new THREE.Vector3(0,0,.5))),true);
+ assert.ok(Math.abs(a.mesh.position.x+4.35)<.001);assert.ok(Math.abs(a.mesh.position.z-3.5)<.001);
+});

@@ -11,7 +11,7 @@ export class WaveField {
    const r2=((x/(n-1)-u)*this.width)**2+((z/(n-1)-v)*this.width)**2;
    // Local depression / raised ring, with approximately zero displaced volume.
    const profile=(1-r2/(2*sigma2))*Math.exp(-r2/(2*sigma2));
-   const i=z*n+x;if(this.mask&&!this.mask[i])continue;this.velocity[i]=Math.max(-5,Math.min(5,this.velocity[i]+strength*profile));
+   const i=z*n+x;if(this.mask&&!this.mask[i])continue;const limit=this.impulseLimit??5;this.velocity[i]=Math.max(-limit,Math.min(limit,this.velocity[i]+strength*profile));
   }
  }
  stroke(from,to,seconds,pressure=1){

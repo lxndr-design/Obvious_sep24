@@ -59,8 +59,9 @@ export class PendulumScene {
   moveAnchor(o,target,collision){
     const delta=target.clone().sub(o.anchor);delta.y=0;
     const position=o.mesh.position.clone().add(delta);
-    if(!collision.canTravel(o,position))return false;
-    o.anchor.add(delta);o.mesh.position.copy(position);this.syncPose(o);return true;
+    const resolved=collision.contactPosition(o,position);
+    if(!resolved||resolved.distanceToSquared(o.mesh.position)<1e-12&&position.distanceToSquared(o.mesh.position)>1e-12)return false;
+    o.anchor.add(resolved.clone().sub(o.mesh.position));o.mesh.position.copy(resolved);this.syncPose(o);return true;
   }
   beginPull(o){this.pull={object:o,target:o.mesh.position.clone()};o.body.wakeUp();}
   setPullTarget(target){

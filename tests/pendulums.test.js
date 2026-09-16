@@ -27,7 +27,10 @@ test('dragging an anchor translates the whole assembly and its full tilted pose 
 test('anchor translation obeys continuous collision checks',()=>{
  const p=new PendulumScene(R),o=form('sphere',-4,3,true,6.5),block=form('cylinder',-1.5,3,false);p.add(o);p.add(block);
  const collision=new CollisionScene(R);collision.objects=[o,block];p.beginAnchor(o);const old=o.anchor.clone();
- assert.equal(p.moveAnchor(o,new THREE.Vector3(0,8.5,3),collision),false);assert.deepEqual(o.anchor,old);p.dispose();
+ const offset=o.mesh.position.clone().sub(old);
+ assert.equal(p.moveAnchor(o,new THREE.Vector3(0,8.5,3),collision),true);
+ assert.ok(Math.abs(o.mesh.position.x+2.85)<.002,'sphere stops flush against the column');
+ assert.ok(o.mesh.position.clone().sub(o.anchor).distanceTo(offset)<1e-6,'rope assembly translates intact');p.dispose();
 });
 test('spring pulling respects solid contacts rather than teleporting through them',()=>{
  const p=new PendulumScene(R),o=form('sphere',-4,3,true,6.5),block=form('cylinder',-1.5,3,false);p.add(o);p.add(block);
