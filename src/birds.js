@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 export function seededRandom(seed=901){return ()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};}
 const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
-// Behavior is deterministic under a seed; rendering is separate from ecology.
+const available=site=>site.kind==='bath'||site.count>=3;
+const settled=bird=>['foraging','perching','bathing','hopping'].includes(bird.state);
+// Behavior is deterministic under a seed; leaf piles and bird baths share quiet-area rules.
 export class BirdColony {
- constructor(random=seededRandom(419)){this.random=random;this.time=0;this.nextArrival=7;this.birds=[];this.quiet=new Map();this.sequence=0;this.limit=5;this.onPeck=null;}
- disturb(position,piles){
-  for(const pile of piles)if(position.distanceTo(pile.position)<2.1)this.quiet.set(pile.id,this.time);
-  const startled=this.birds.filter(b=>b.state!=='departing'&&b.position.distanceTo(position)<1.65);
+ constructor(random=seededRandom(419)){this.random=random;this.time=0;this.nextArrival=7;this.birds=[];this.quiet=new Map();this.sequence=0;this.limit=5;this.onPeck=null;this.onSplash=null;}
+ disturb(position,sites){
+  // Pointer ground rays must also disturb elevated baths.
+  for(const site of sites)if(Math.hypot(position.x-site.position.x,position.z-site.position.z)<2.1)this.quiet.set(site.id,this.time);
+  const startled=this.birds.filter(b=>b.state!=='departing'&&(b.position.distanceTo(position)<1.65||(b.habitat==='bath'&&Math.hypot(b.position.x-position.x,b.position.z-position.z)<1.65)));
   for(const b of this.birds)if(b.state!=='departing'&&(startled.includes(b)||startled.some(n=>n.position.distanceTo(b.position)<1.4)))this.depart(b,position);
  }
  depart(b,from){
@@ -15,37 +18,66 @@ export class BirdColony {
   b.to=b.position.clone().addScaledVector(away,3.5).add(new THREE.Vector3(0,4.1,0));b.startOpacity=b.opacity;b.yaw=Math.atan2(-(b.to.z-b.from.z),b.to.x-b.from.x);
   this.quiet.set(b.pileId,this.time);this.nextArrival=Math.max(this.nextArrival,this.time+11);
  }
- step(dt,piles,pointer=null,isClear=()=>true){
-  this.time+=dt;if(pointer)this.disturb(pointer,piles);
-  for(const b of this.birds){b.age+=dt;
-   const pile=piles.find(p=>p.id===b.pileId&&p.count>=3);
-   if(b.state!=='departing'&&(!pile||!isClear(b.target)))this.depart(b,pointer);
+ bathPoint(site,angle,radius,y){return site.position.clone().add(new THREE.Vector3(Math.cos(angle)*radius,y,Math.sin(angle)*radius));}
+ hop(b,target,nextState){b.state='hopping';b.age=0;b.from=b.position.clone();b.to=target;b.nextState=nextState;b.yaw=Math.atan2(-(target.z-b.from.z),target.x-b.from.x);}
+ step(dt,sites,pointer=null,isClear=()=>true){
+  this.time+=dt;if(pointer)this.disturb(pointer,sites);
+  for(const b of this.birds){b.age+=dt;b.visitAge=(b.visitAge??0)+dt;
+   const site=sites.find(p=>p.id===b.pileId&&available(p));
+   if(b.state!=='departing'&&(!site||!isClear(b.target,site)||(b.habitat==='bath'&&site.position.distanceTo(b.sitePosition)>.02)))this.depart(b,pointer);
    if(b.state==='arriving'){
-    const t=Math.min(1,b.age/2.8),s=smooth(t);b.position.lerpVectors(b.from,b.target,s);b.position.y+=Math.sin(Math.PI*t)*.35;
+    const t=Math.min(1,b.age/2.8);b.position.lerpVectors(b.from,b.target,smooth(t));b.position.y+=Math.sin(Math.PI*t)*.35;
     b.opacity=smooth(t/.8);b.wing=Math.sin(b.age*34)*.95;b.peck=0;
-    if(t===1){b.state='foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;b.wing=0;}
+    if(t===1){b.state=b.habitat==='bath'?'perching':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;b.wing=0;}
    }else if(b.state==='foraging'){
     b.opacity=1;b.wing=0;
-    if(b.age>=b.nextWalk){const a=this.random()*Math.PI*2,r=.2+this.random()*.4;const target=pile.position.clone().add(new THREE.Vector3(Math.cos(a)*r,.08,Math.sin(a)*r));if(isClear(target)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(target)>.4))b.walkTarget=target;b.nextWalk=b.age+1.8+this.random()*2.1;}
+    if(b.age>=b.nextWalk){const a=this.random()*Math.PI*2,r=.2+this.random()*.4;const target=site.position.clone().add(new THREE.Vector3(Math.cos(a)*r,.08,Math.sin(a)*r));if(isClear(target,site)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(target)>.4))b.walkTarget=target;b.nextWalk=b.age+1.8+this.random()*2.1;}
     const delta=b.walkTarget.clone().sub(b.position);delta.y=0;const distance=delta.length();
-    if(distance>.025){const next=b.position.clone().addScaledVector(delta,Math.min(1,dt*.65/distance));if(isClear(next)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(next)>.33))b.position.copy(next);b.yaw=Math.atan2(-delta.z,delta.x);b.position.y=.08+Math.abs(Math.sin(b.age*17))*.018;b.peck=0;}
-    else{b.position.y=.08;const cycle=Math.floor(b.age/2.5),phase=(b.age%2.5)/2.5;b.peck=phase<.36?Math.sin(phase/.36*Math.PI):0;if(b.peck>.9&&cycle!==b.lastPeck){b.lastPeck=cycle;this.onPeck?.(b.position,pile);}}
-    // Quiet visitors linger, then leave naturally even without a scare.
+    if(distance>.025){const next=b.position.clone().addScaledVector(delta,Math.min(1,dt*.65/distance));if(isClear(next,site)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(next)>.33))b.position.copy(next);b.yaw=Math.atan2(-delta.z,delta.x);b.position.y=.08+Math.abs(Math.sin(b.age*17))*.018;b.peck=0;}
+    else{b.position.y=.08;const cycle=Math.floor(b.age/2.5),phase=(b.age%2.5)/2.5;b.peck=phase<.36?Math.sin(phase/.36*Math.PI):0;if(b.peck>.9&&cycle!==b.lastPeck){b.lastPeck=cycle;this.onPeck?.(b.position,site);}}
     if(b.age>50+8*b.id)this.depart(b,null);
+   }else if(b.state==='perching'){
+    b.opacity=1;b.wing=0;b.peck=.08*Math.sin(b.age*2);b.position.copy(b.target);
+    if(b.age>2.5){
+     // One bird bathes at a time; companions wait at separated points on the rim.
+     const occupied=this.birds.some(other=>other!==b&&other.pileId===b.pileId&&(other.state==='bathing'||other.state==='hopping'));
+     const target=this.bathPoint(site,b.angle,.16,site.waterY+.075);
+     if(!occupied&&isClear(target,site))this.hop(b,target,'bathing');
+    }
+   }else if(b.state==='hopping'){
+    const t=Math.min(1,b.age/.65);b.position.lerpVectors(b.from,b.to,smooth(t));b.position.y+=Math.sin(t*Math.PI)*.20;b.wing=Math.sin(t*Math.PI)*.7;b.peck=0;
+    if(t===1){b.state=b.nextState;b.age=0;b.lastSplash=-1;b.wing=0;}
+   }else if(b.state==='bathing'){
+    const cycle=Math.floor(b.age/1.6),phase=(b.age%1.6)/1.6,active=phase<.65;
+    b.position.copy(b.to);b.position.y-=active?Math.sin(phase/.65*Math.PI)*.035:0;
+    b.wing=active?Math.sin(b.age*42)*1.25:.12;b.peck=active?Math.max(0,Math.sin(b.age*8))*.7:0;
+    if(active&&Math.floor(b.age/.18)!==b.lastSplash){b.lastSplash=Math.floor(b.age/.18);this.onSplash?.(b.position,site);}
+    if(cycle>=3)this.hop(b,b.target.clone(),'perching');
    }else{
     const t=Math.min(1,b.age/2.5);b.position.lerpVectors(b.from,b.to,smooth(t));b.opacity=b.startOpacity*(1-smooth((t-.1)/.75));b.wing=Math.sin(b.age*38)*1.15;b.peck=0;
    }
+   if(b.habitat==='bath'&&b.visitAge>45+4*b.id)this.depart(b,null);
   }
   this.birds=this.birds.filter(b=>b.state!=='departing'||b.age<2.5);
   if(this.time>=this.nextArrival&&this.birds.length<this.limit){
-   const candidates=piles.filter(p=>p.count>=3&&this.time-(this.quiet.get(p.id)??0)>6&&(!pointer||pointer.distanceTo(p.position)>2.1));
-   // Prefer the same leaf pile as calm existing birds, without packing identical positions.
-   candidates.sort((a,b)=>this.birds.filter(v=>v.pileId===b.id&&v.state==='foraging').length-this.birds.filter(v=>v.pileId===a.id&&v.state==='foraging').length);
-   const pile=candidates[0];
-   if(pile){let target=null;for(let i=0;i<12;i++){const a=this.random()*Math.PI*2,r=.15+this.random()*.65,p=pile.position.clone().add(new THREE.Vector3(Math.cos(a)*r,.08,Math.sin(a)*r));if(isClear(p)&&this.birds.every(b=>b.target.distanceTo(p)>.45)){target=p;break;}}
-    if(target){const from=target.clone().add(new THREE.Vector3(-2.5-this.random(),3.5+this.random(),-1));this.birds.push({id:++this.sequence,pileId:pile.id,state:'arriving',age:0,position:from.clone(),from,target,opacity:0,wing:0,peck:0,yaw:Math.atan2(-(target.z-from.z),target.x-from.x)});this.nextArrival=this.time+8+this.random()*5;}
-    else this.nextArrival=this.time+2;
-   }else this.nextArrival=this.time+1;
+   const residents=site=>this.birds.filter(b=>b.pileId===site.id&&b.state!=='departing');
+   const candidates=sites.filter(p=>available(p)&&this.time-(this.quiet.get(p.id)??0)>6&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<3));
+   const preference=p=>residents(p).filter(settled).length+(p.kind==='bath'?2:0);
+   candidates.sort((a,b)=>preference(b)-preference(a));
+   // Try other habitats when the preferred site is crowded or obstructed.
+   let spawned=false;
+   for(const site of candidates){let target=null,angle=0;
+    for(let i=0;i<16;i++){
+     const a=this.random()*Math.PI*2,r=site.kind==='bath'?site.rimRadius:.15+this.random()*.65;
+     const p=this.bathPoint(site,a,r,site.kind==='bath'?site.rimY+.082:.08);
+     if(isClear(p,site)&&this.birds.every(b=>b.state==='departing'||b.target.distanceTo(p)>.5)){target=p;angle=a;break;}
+    }
+    if(!target)continue;
+    const from=target.clone().add(new THREE.Vector3(-2.5-this.random(),3.5+this.random(),-1));
+    this.birds.push({id:++this.sequence,pileId:site.id,habitat:site.kind??'leaves',sitePosition:site.position.clone(),angle,state:'arriving',age:0,visitAge:0,position:from.clone(),from,target,opacity:0,wing:0,peck:0,yaw:Math.atan2(-(target.z-from.z),target.x-from.x)});
+    this.nextArrival=this.time+8+this.random()*5;spawned=true;break;
+   }
+   if(!spawned)this.nextArrival=this.time+(candidates.length?2:1);
   }
  }
  reset(){this.time=0;this.nextArrival=7;this.birds=[];this.quiet.clear();this.sequence=0;}

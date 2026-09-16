@@ -92,7 +92,7 @@ function remove(o){
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);select(null);count();notify('Form removed');
 }
-function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('Drag a form to arrange the scene');}
+function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);addObject('bench',[-4,-5]);addObject('birdbath',[6.5,0]);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('Drag a form to arrange the scene');}
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
 function hitWater(){const hits=raycaster.intersectObject(waterMesh);if(!hits.length)return null;return hits[0].point;}
@@ -158,7 +158,7 @@ canvas.addEventListener('keydown',e=>{
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
 });
 function rotateSelected(){const o=state.selected;if(!o)return;if(!physics.rotate(o))notify('Not enough clearance to rotate');else{pendulums.syncPose(o);notify('Rotated 90°');}updateCable(o);select(o);}
-for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add);if(o){select(o);notify(`${LABELS[o.type]} added · drag it into place`);canvas.focus({preventScroll:true});}});
+for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':`${LABELS[o.type]} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
 function openPicker(family){
  pickerFamily=family;const plant=family==='plant';

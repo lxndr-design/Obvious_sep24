@@ -1,7 +1,7 @@
 // Displaced surface driven by a damped wave equation (120 Hz, CFL-safe).
 // Impulses and wakes act on velocity; the visible mesh uses these actual heights.
 export class WaveField {
- constructor(size=97,width=5){this.size=size;this.width=width;this.dx=width/(size-1);this.dt=1/120;this.speed=2.25;this.damping=.85;this.height=new Float32Array(size*size);this.velocity=new Float32Array(size*size);this.next=new Float32Array(size*size);this.accumulator=0;this.time=0;this.windClock=0;this.energy=.14;this.windDirection=35;this.windVector=null;}
+ constructor(size=97,width=5){this.size=size;this.width=width;this.dx=width/(size-1);this.dt=1/120;this.speed=2.25;this.damping=.85;this.height=new Float32Array(size*size);this.velocity=new Float32Array(size*size);this.next=new Float32Array(size*size);this.accumulator=0;this.time=0;this.windClock=0;this.energy=.14;this.windDirection=35;this.windVector=null;this.mask=null;}
  disturb(u,v,strength=1.8,radius=.16){
   if(![u,v,strength,radius].every(Number.isFinite)||radius<=0)return;
   const n=this.size,sigma2=radius*radius;
@@ -11,7 +11,7 @@ export class WaveField {
    const r2=((x/(n-1)-u)*this.width)**2+((z/(n-1)-v)*this.width)**2;
    // Local depression / raised ring, with approximately zero displaced volume.
    const profile=(1-r2/(2*sigma2))*Math.exp(-r2/(2*sigma2));
-   const i=z*n+x;this.velocity[i]=Math.max(-5,Math.min(5,this.velocity[i]+strength*profile));
+   const i=z*n+x;if(this.mask&&!this.mask[i])continue;this.velocity[i]=Math.max(-5,Math.min(5,this.velocity[i]+strength*profile));
   }
  }
  stroke(from,to,seconds,pressure=1){
@@ -32,10 +32,12 @@ export class WaveField {
   const damp=Math.exp(-this.damping*dt);
   for(let z=0;z<n;z++)for(let x=0;x<n;x++){
    const i=z*n+x,left=z*n+Math.max(0,x-1),right=z*n+Math.min(n-1,x+1),up=Math.max(0,z-1)*n+x,down=Math.min(n-1,z+1)*n+x;
-   v[i]=(v[i]+k*(h[left]+h[right]+h[up]+h[down]-4*h[i])*dt)*damp;
+   if(this.mask&&!this.mask[i]){v[i]=0;this.next[i]=0;continue;}
+   const sum=this.mask?(this.mask[left]?h[left]:h[i])+(this.mask[right]?h[right]:h[i])+(this.mask[up]?h[up]:h[i])+(this.mask[down]?h[down]:h[i]):h[left]+h[right]+h[up]+h[down];
+   v[i]=(v[i]+k*(sum-4*h[i])*dt)*damp;
    this.next[i]=h[i]+v[i]*dt;
   }
-  let mean=0;for(const y of this.next)mean+=y;mean/=this.next.length;for(let i=0;i<h.length;i++)h[i]=this.next[i]-mean;
+  let mean=0,count=0;for(let i=0;i<h.length;i++)if(!this.mask||this.mask[i]){mean+=this.next[i];count++;}mean/=Math.max(1,count);for(let i=0;i<h.length;i++)h[i]=!this.mask||this.mask[i]?this.next[i]-mean:0;
  }
  reset(){this.height.fill(0);this.velocity.fill(0);this.next.fill(0);this.time=0;this.windClock=0;this.accumulator=0;}
 }

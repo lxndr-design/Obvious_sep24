@@ -5,7 +5,8 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 export const PLANTS={snake:'Snake plant',rubber:'Rubber plant',succulent:'Succulent'};
 export const PLANT_SIZES={small:.65,medium:1,large:1.5};
 export const TABLE_SIZES={half:.5,full:1};
-export const FURNISHING_LABELS={};
+export const FURNISHING_LABELS={bench:'Park bench',birdbath:'Bird bath'};
+export const BATH={height:1.53,waterY:1.43,waterRadius:.57,rimRadius:.69};
 for(const [plant,label] of Object.entries(PLANTS))for(const size of Object.keys(PLANT_SIZES))FURNISHING_LABELS[`plant-${plant}-${size}`]=`${label} · ${size}`;
 for(const shape of ['round','square'])for(const size of Object.keys(TABLE_SIZES))FURNISHING_LABELS[`table-${shape}-${size}`]=`${shape==='round'?'Round':'Square'} table · ${size==='half'?'½':'1/1'}`;
 
@@ -14,7 +15,7 @@ for(const shape of ['round','square'])for(const size of Object.keys(TABLE_SIZES)
 export function makeFurnishing(type,R){
  const [family,kind,size]=type.split('-');
  if(!Object.hasOwn(FURNISHING_LABELS,type))throw Error('Unknown furnishing');
- const scale=family==='plant'?PLANT_SIZES[size]:TABLE_SIZES[size];
+ const scale=family==='plant'?PLANT_SIZES[size]:family==='table'?TABLE_SIZES[size]:1;
  const geometries=[],parts=[];
  function add(geometry,position=new THREE.Vector3(),rotation=new THREE.Quaternion(),analytic=null){
   geometry.applyQuaternion(rotation);geometry.translate(position.x,position.y,position.z);geometry.scale(scale,scale,scale);
@@ -32,7 +33,30 @@ export function makeFurnishing(type,R){
   const points=[a,b,middle.clone().addScaledVector(side,width),middle.clone().addScaledVector(side,-width),middle.clone().addScaledVector(normal,thickness),middle.clone().addScaledVector(normal,-thickness)];
   add(new ConvexGeometry(points));
  }
- if(family==='table'){
+ if(family==='bench'){
+  // Individual slats, rails and legs preserve the bench's open structure.
+  const box=(w,h,d,x,y,z)=>add(new THREE.BoxGeometry(w,h,d),v(x,y,z),undefined,new R.Cuboid(w/2,h/2,d/2));
+  for(let i=0;i<4;i++)box(2.35,.095,.145,0,.72,-.265+i*.18);
+  for(const x of [-.92,.92]){
+   for(const z of [-.24,.24])box(.12,.68,.12,x,.34,z);
+   box(.14,.13,.78,x,.62,0);
+   box(.11,.86,.11,x,1.05,-.32);
+   box(.105,.30,.105,x,.92,.27);
+   box(.14,.085,.83,x,1.09,0);
+  }
+  for(let i=0;i<3;i++)box(2.35,.14,.085,0,.99+i*.19,-.32);
+  box(1.84,.11,.11,0,.27,0);
+ }else if(family==='birdbath'){
+  add(new THREE.CylinderGeometry(.35,.46,.14,40),v(0,.07,0));
+  add(new THREE.CylinderGeometry(.18,.23,1.14,32),v(0,.71,0));
+  add(new THREE.CylinderGeometry(.66,.40,.16,48),v(0,1.24,0));
+  // Hollow bowl: each wall wedge is convex, with no hull spanning the basin.
+  for(let i=0;i<48;i++){
+   const points=[];
+   for(const a of [i*Math.PI/24,(i+1)*Math.PI/24])for(const [r,y] of [[.66,1.32],[.76,BATH.height],[.62,BATH.height],[.53,1.32]])points.push(v(Math.cos(a)*r,y,Math.sin(a)*r));
+   add(new ConvexGeometry(points));
+  }
+ }else if(family==='table'){
   const height=1.3,thickness=.13,topY=height-thickness/2;
   if(kind==='round')add(new THREE.CylinderGeometry(1,1,thickness,64),v(0,topY,0),undefined,new R.Cylinder(thickness*scale/2,scale));
   else add(new THREE.BoxGeometry(2,thickness,2),v(0,topY,0),undefined,new R.Cuboid(scale,thickness*scale/2,scale));

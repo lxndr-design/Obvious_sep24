@@ -6,6 +6,7 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 
 - The **Plant** picker offers snake plants, rubber plants and succulents, each in small, medium and large sizes (nine variants). **Table** offers round and square tops in half and full size (four variants). Full tables are 2 m wide and 1.3 m tall; half size scales every dimension by 0.5. All additions are white and support the same grid dragging, rotation, suspension and removal controls as the original forms.
 
+- **Bench** adds a slatted park bench; **Bird bath** adds a pedestal basin. Leave an upright bath quiet for several seconds and birds land on its rim, take turns hopping into the water, dip and flap, then return to the rim. Companions gather nearby; mouse proximity scares them away. Moving, hanging or removing the bath sends its visitors away.
 - Drag floor forms or the ring at the top of a hanging cable to reposition them on an invisible 0.5 m grid. Pull a hanging form itself and release to swing it physically. Cable length ranges from 1 to 7 m, subject to floor and object clearance.
 - Click the water for a raised ripple; drag through it for a continuous wake. A stroke is sampled along its world-space path, including between mouse events. Release and the disturbance propagates, reflects, interferes and decays.
 - **Wind power** and **Wind direction** drive the same field across water, grass, leaves and seed pods. Zero wind creates no new disturbances; stronger wind rolls the spiky pods and moves loose leaves. Pause in the water section pauses only water.
@@ -21,15 +22,17 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 
 **Solid forms and pendulums.** Rapier narrow-phase queries use analytic balls/cylinders, oriented boxes, an exact compound arch (24 crown wedges plus two legs) and a convex organic pebble. Continuous shape casts prevent translational tunneling. Hanging forms are actual dynamic bodies with gravity, top-mounted rope joints and contacts, stepped at 120 Hz with CCD. A pointer spring pulls without moving the ceiling anchor; releasing preserves momentum. The cable follows the body's rotated attachment and fades toward the high ceiling. Editor rotations are checked in 5-degree increments.
 
-**Furniture and potted plants.** Table tops and four legs have separate analytic colliders, preserving the open underside. Pots, stems and individual solid leaves use matching convex components with baked transforms; foliage gaps remain open. Potted plants are rigid sculptural assemblies, while the meadow stems retain their soft-body simulation. A medium rubber plant and half-size round table are included in the initial arrangement.
+**Furniture and potted plants.** Table tops and four legs have separate analytic colliders, preserving the open underside. Pots, stems and individual solid leaves use matching convex components with baked transforms; foliage gaps remain open. Potted plants are rigid sculptural assemblies, while the meadow stems retain their soft-body simulation. The bench has separate slats, rails, arms and legs. The bird bath uses 48 convex bowl-wall wedges around an open basin, with a solid basin floor and pedestal. The initial arrangement includes a rubber plant, a small round table, a bench and a bird bath.
 
 **Water.** A 129 × 129 physically displaced height field integrates the damped 2D wave equation at 120 Hz with reflecting boundaries, CFL-safe propagation and volume-offset correction. Localized pressure impulses and spatially sampled pointer wakes alter velocity, not an animated texture. Actual displaced positions and normals drive the stylized reflection/crest shading before dithering. The ripple control produces raised crests around 0.27 m in an otherwise calm pool; gentle default wind produces millimetre-scale surface motion. Loose leaves and pods receive simple buoyant support and water drag when entering the pool, and their entry injects a ripple.
+
+**Bird-bath water.** Each upright basin has its own 33 × 33 circular masked wave solver with reflecting shoreline boundaries and damping. Wing flaps inject localized impulses into its displaced mesh and emit bounded, short-lived ballistic droplets. Bath water shares the global wind field. Hanging baths become inactive; moving or deleting a bath clears its visitors and water effects.
 
 **Wind and soft foliage.** A coherent spatial wind field combines a direction with slow gusts. The meadow contains 36 long grass strands, two daisies and one dandelion. Each stem has nine inertial nodes, a pinned root, rest-shape elasticity, damping and seven length-constraint iterations at 60 Hz. Shape-based contact projection bends it around solids; flower heads use larger tip contact radii. Broad-phase bounds reduce contact-query workload while Rapier supplies narrow-phase contact normals. These are flexible simulated stems, not sine-wave vertex animations.
 
 **Loose matter.** Four small piles contain eight lightweight curved leaves each. Leaves use convex colliders. Three spiky seed pods use a ball core and 22 cone colliders each, matching their rendered spikes. Air-relative drag is applied above the center of mass to produce rolling torque; friction and damping let the pods settle when wind stops.
 
-**Birds.** A seeded behavior system tracks quiet time around the actual physical leaf clusters. Birds prefer occupied calm piles, choose separated landing/walking targets, peck leaves with small physical impulses, and avoid solid forms. Arrival/departure paths and wingbeats are animated; opacity controls their fade, and departed meshes/materials are freed. Both ground-space and screen-space cursor proximity can trigger flight.
+**Birds.** A seeded behavior system tracks quiet time around the actual physical leaf clusters. Birds prefer occupied calm piles, choose separated landing/walking targets, peck leaves with small physical impulses, and avoid solid forms. Arrival/departure paths and wingbeats are animated; opacity controls their fade, and departed meshes/materials are freed. Both ground-space and screen-space cursor proximity can trigger flight, including at elevated baths. Baths attract up to three visitors within the global five-bird limit; one bathes at a time while companions perch. Bathing, hops and wingbeats are behavioral animation, coupled to simulated ripples and droplets.
 
 ## Scope and limits
 
@@ -48,7 +51,8 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 - `src/terrain.js`: open ground layout and stable physics patches.
 - `src/waves.js`, `src/wind.js`: surface simulation and shared wind field.
 - `src/grass.js`: elastic strands and shape contact projection.
-- `src/birds.js`: flock behavior, quiet-area timing and fade lifecycle.
+- `src/birds.js`: flock behavior, foraging, rim perching, bathing, quiet-area timing and fade lifecycle.
+- `src/birdbath.js`: circular basin water, splash impulses and ballistic droplets.
 - `src/ecology.js`: meadow meshes, loose rigid bodies, foliage, flowers and birds.
 - `src/dither.js`: shared screen-pixel sampling and ordered luminance quantization, with a full-resolution bypass.
 - `tests/`: collision, pendulum, wave, foliage, seed stability and bird lifecycle checks.
