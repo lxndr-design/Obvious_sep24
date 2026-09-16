@@ -36,8 +36,8 @@ for(const [w,d,x,z]of [[.06,5,.52,-1.5],[.06,5,5.48,-1.5],[5,.06,3,-3.98],[5,.06
 const wind=new WindField();
 const water=new PoolWater();
 const waterGeometry=new THREE.PlaneGeometry(5,5,128,128);waterGeometry.rotateX(-Math.PI/2);waterGeometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),5);
-const waterMaterial=new THREE.MeshPhongMaterial({color:0xffffff,specular:0xffffff,shininess:130,side:THREE.DoubleSide});
-const waterMesh=new THREE.Mesh(waterGeometry,waterMaterial);waterMesh.position.set(POOL.x,-.19,POOL.z);waterMesh.receiveShadow=true;waterMesh.castShadow=true;scene.add(waterMesh);
+const waterMaterial=new THREE.MeshPhongMaterial({color:0x8c8c8c,specular:0xffffff,shininess:130,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
+const waterMesh=new THREE.Mesh(waterGeometry,waterMaterial);waterMesh.position.set(POOL.x,-.19,POOL.z);waterMesh.receiveShadow=true;waterMesh.castShadow=false;scene.add(waterMesh);
 const poolSpray=new PoolSpray(water,waterMaterial);poolSpray.mesh.position.copy(waterMesh.position);scene.add(poolSpray.mesh);
 physics=new CollisionScene(RAPIER);physics.objects=state.objects;
 const pendulums=new PendulumScene(RAPIER);
