@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 export const DitherShader={
- uniforms:{tDiffuse:{value:null},resolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0}},
+ uniforms:{tDiffuse:{value:null},resolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(38/255,48/255,42/255)},paperColor:{value:new THREE.Vector3(244/255,246/255,238/255)}},
  vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
  fragmentShader:`
  uniform sampler2D tDiffuse;
@@ -8,6 +8,9 @@ export const DitherShader={
  uniform vec2 resolution;
  uniform float scale;
  uniform float ink;
+ // Palette colors are already sRGB, matching this final pass output.
+ uniform vec3 inkColor;
+ uniform vec3 paperColor;
  varying vec2 vUv;
  float bayer2(vec2 p){p=mod(floor(p),2.);return mod(2.*p.x+3.*p.y,4.);}
  float bayer8(vec2 p){return (16.*bayer2(p)+4.*bayer2(floor(p/2.))+bayer2(floor(p/4.))+.5)/64.;}
@@ -29,7 +32,6 @@ export const DitherShader={
   float threshold=bayer8(pixel);
   float levels=mix(6.,1.,ink);
   float q=floor(clamp(l,0.,1.)*levels+threshold)/levels;
-  vec3 dark=vec3(.15,.19,.165),paper=vec3(.956,.966,.935);
-  gl_FragColor=vec4(mix(dark,paper,q),1.);
+  gl_FragColor=vec4(mix(inkColor,paperColor,q),1.);
  }`
 };
