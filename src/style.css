@@ -4,3 +4,5 @@
 #hang-hint{margin:0 0 16px;line-height:1.6}
 
 #inspector{max-height:calc(100dvh - 210px);overflow-y:auto;scrollbar-width:thin}
+
+.switch-row.is-disabled{opacity:.45}.switch-row input:disabled{cursor:default}

@@ -6,12 +6,12 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 
 - Drag floor forms or the ring at the top of a hanging cable to reposition them on an invisible 0.5 m grid. Pull a hanging form itself and release to swing it physically.
 - Click the water for a raised ripple; drag through it for a continuous wake. A stroke is sampled along its world-space path, including between mouse events. Release and the disturbance propagates, reflects, interferes and decays.
-- **Wind strength** and **Wind direction** drive the same field across water, grass, leaves and seed pods. Zero wind creates no new disturbances; stronger wind rolls the spiky pods and moves loose leaves. Pause in the water section pauses only water.
+- **Wind power** and **Wind direction** drive the same field across water, grass, leaves and seed pods. Zero wind creates no new disturbances; stronger wind rolls the spiky pods and moves loose leaves. Pause in the water section pauses only water.
 - Grass bends around nearby forms, loose matter and the cursor, then springs back. Flowers bend on the same flexible stems.
 - Leave leaf piles alone for several seconds and birds arrive, fading in while flying down. They walk, peck at the physical leaves, and attract more birds nearby (up to five). Moving the mouse near a bird scares its nearby companions too; they fly away, fade out and are removed. A disturbed area must stay quiet before birds return. Dispersed or submerged leaf piles stop attracting birds.
 - Right-drag to orbit, middle-drag to pan, scroll to zoom, and Recenter to restore the orthographic view. Two fingers pan/zoom on touch screens. The ground continues far beyond the view; there is no platform edge or invisible fence around the initial arrangement.
 - With the canvas focused, arrow keys move a selected form or ceiling anchor, R rotates it, Delete removes it, and Escape cancels dragging.
-- Two-tone ink gives the stronger one-bit look. Show collision shapes exposes the editable form geometry.
+- Light strength scales sunlight and ambient fill together from 0–200%. Dither scale runs from 0–5 screen pixels: zero restores continuous full-resolution shading, while larger cells pixelate silhouettes and shadows as well as shading. Two-tone ink gives the stronger one-bit look when dithering is enabled; its selection is remembered while dithering is off. Show collision shapes exposes the editable form geometry.
 
 ## Rendering and physics
 
@@ -46,7 +46,7 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 - `src/grass.js`: elastic strands and shape contact projection.
 - `src/birds.js`: flock behavior, quiet-area timing and fade lifecycle.
 - `src/ecology.js`: meadow meshes, loose rigid bodies, foliage, flowers and birds.
-- `src/dither.js`: ordered luminance quantization.
+- `src/dither.js`: shared screen-pixel sampling and ordered luminance quantization, with a full-resolution bypass.
 - `tests/`: collision, pendulum, wave, foliage, seed stability and bird lifecycle checks.
 
 Three.js and Rapier are bundled locally. Fonts use Google Fonts with system fallbacks. No accounts, external scene data, textures or API keys are needed locally. Feature-detected WebMCP actions use the same validated scene operations as the controls.
