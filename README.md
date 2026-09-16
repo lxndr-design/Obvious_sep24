@@ -4,7 +4,9 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 
 ## Interaction
 
-- Drag floor forms or the ring at the top of a hanging cable to reposition them on an invisible 0.5 m grid. Pull a hanging form itself and release to swing it physically.
+- The **Plant** picker offers snake plants, rubber plants and succulents, each in small, medium and large sizes (nine variants). **Table** offers round and square tops in half and full size (four variants). Full tables are 2 m wide and 1.3 m tall; half size scales every dimension by 0.5. All additions are white and support the same grid dragging, rotation, suspension and removal controls as the original forms.
+
+- Drag floor forms or the ring at the top of a hanging cable to reposition them on an invisible 0.5 m grid. Pull a hanging form itself and release to swing it physically. Cable length ranges from 1 to 7 m, subject to floor and object clearance.
 - Click the water for a raised ripple; drag through it for a continuous wake. A stroke is sampled along its world-space path, including between mouse events. Release and the disturbance propagates, reflects, interferes and decays.
 - **Wind power** and **Wind direction** drive the same field across water, grass, leaves and seed pods. Zero wind creates no new disturbances; stronger wind rolls the spiky pods and moves loose leaves. Pause in the water section pauses only water.
 - Grass bends around nearby forms, loose matter and the cursor, then springs back. Flowers bend on the same flexible stems.
@@ -18,6 +20,8 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 **Ground and lighting.** Four white ground surfaces surround a recessed pool and extend 4,096 m in every direction. There is no raised slab. Nearby physics patches are kept small for stable contact with tiny seed spikes, with outer patches continuing the ground. One hemisphere light, one directional light, one 2048² shadow map and one Bayer dithering postprocess keep rendering simple. Shadows follow panning/zooming; meadow shadows refresh at 30 Hz. No bloom, ambient-occlusion pass or image blur is used.
 
 **Solid forms and pendulums.** Rapier narrow-phase queries use analytic balls/cylinders, oriented boxes, an exact compound arch (24 crown wedges plus two legs) and a convex organic pebble. Continuous shape casts prevent translational tunneling. Hanging forms are actual dynamic bodies with gravity, top-mounted rope joints and contacts, stepped at 120 Hz with CCD. A pointer spring pulls without moving the ceiling anchor; releasing preserves momentum. The cable follows the body's rotated attachment and fades toward the high ceiling. Editor rotations are checked in 5-degree increments.
+
+**Furniture and potted plants.** Table tops and four legs have separate analytic colliders, preserving the open underside. Pots, stems and individual solid leaves use matching convex components with baked transforms; foliage gaps remain open. Potted plants are rigid sculptural assemblies, while the meadow stems retain their soft-body simulation. A medium rubber plant and half-size round table are included in the initial arrangement.
 
 **Water.** A 129 × 129 physically displaced height field integrates the damped 2D wave equation at 120 Hz with reflecting boundaries, CFL-safe propagation and volume-offset correction. Localized pressure impulses and spatially sampled pointer wakes alter velocity, not an animated texture. Actual displaced positions and normals drive the stylized reflection/crest shading before dithering. The ripple control produces raised crests around 0.27 m in an otherwise calm pool; gentle default wind produces millimetre-scale surface motion. Loose leaves and pods receive simple buoyant support and water drag when entering the pool, and their entry injects a ripple.
 
@@ -39,7 +43,7 @@ An open, dithered Three.js landscape with interactive water, draggable forms, pe
 ## Source map
 
 - `src/main.js`: rendering, controls, water mesh and integration.
-- `src/shapes.js`, `src/collision.js`: editable meshes and matching placement colliders.
+- `src/shapes.js`, `src/furnishings.js`, `src/collision.js`: editable meshes, the plant/table catalog, and matching placement colliders.
 - `src/pendulums.js`: Rapier world, solid ground, rope constraints and pointer pulling.
 - `src/terrain.js`: open ground layout and stable physics patches.
 - `src/waves.js`, `src/wind.js`: surface simulation and shared wind field.

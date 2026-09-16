@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
-export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble'};
+import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
+export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',...FURNISHING_LABELS};
 export function makeForm(type,R){
+ if(Object.hasOwn(FURNISHING_LABELS,type))return makeFurnishing(type,R);
  let geometry,parts=[],height;
  if(type==='box'){height=1.35;geometry=new THREE.BoxGeometry(1.35,height,1.35);parts=[{shape:new R.Cuboid(.675,.675,.675)}];}
  else if(type==='sphere'){height=1.5;geometry=new THREE.SphereGeometry(.75,48,32);parts=[{shape:new R.Ball(.75)}];}

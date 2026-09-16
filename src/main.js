@@ -6,6 +6,7 @@ import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {makeForm,LABELS} from './shapes.js';
+import {PLANTS} from './furnishings.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {WaveField} from './waves.js';
 import {DitherShader} from './dither.js';
@@ -91,7 +92,7 @@ function remove(o){
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);select(null);count();notify('Form removed');
 }
-function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('Drag a form to arrange the scene');}
+function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('Drag a form to arrange the scene');}
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
 function hitWater(){const hits=raycaster.intersectObject(waterMesh);if(!hits.length)return null;return hits[0].point;}
@@ -158,6 +159,26 @@ canvas.addEventListener('keydown',e=>{
 });
 function rotateSelected(){const o=state.selected;if(!o)return;if(!physics.rotate(o))notify('Not enough clearance to rotate');else{pendulums.syncPose(o);notify('Rotated 90°');}updateCable(o);select(o);}
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add);if(o){select(o);notify(`${LABELS[o.type]} added · drag it into place`);canvas.focus({preventScroll:true});}});
+let pickerFamily='plant';
+function openPicker(family){
+ pickerFamily=family;const plant=family==='plant';
+ $('picker-title').textContent=plant?'Potted plant':'Table';$('variant-label').textContent=plant?'Plant':'Shape';
+ const variants=plant?Object.entries(PLANTS):[['round','Round'],['square','Square']];
+ const sizes=plant?[['small','Small'],['medium','Medium'],['large','Large']]:[['half','½ size'],['full','1/1 size']];
+ $('object-variant').replaceChildren(...variants.map(([value,label])=>new Option(label,value)));
+ $('object-size').replaceChildren(...sizes.map(([value,label])=>new Option(label,value)));
+ $('object-size').value=plant?'medium':'full';
+ $('picker-hint').textContent=plant?'Three plants, each in three sizes. Drag, rotate or hang them just like other forms.':'Full size: 2 m wide × 1.3 m tall. Half size scales every dimension by ½.';
+ $('object-picker').showModal();
+}
+$('add-plant').addEventListener('click',()=>openPicker('plant'));
+$('add-table').addEventListener('click',()=>openPicker('table'));
+$('picker-close').addEventListener('click',()=>$('object-picker').close());
+$('picker-form').addEventListener('submit',event=>{
+ event.preventDefault();const type=`${pickerFamily}-${$('object-variant').value}-${$('object-size').value}`;
+ const o=addObject(type);if(o){$('object-picker').close();select(o);notify(`${LABELS[type]} added · drag it into place`);canvas.focus({preventScroll:true});}
+ else $('picker-hint').textContent='No clear space here. Close this picker, pan to an open area, or remove a form and try again.';
+});
 $('sun').addEventListener('input',e=>{setSun(+e.target.value);$('sun-value').textContent=e.target.value+'°';});$('light-strength').addEventListener('input',e=>{const strength=+e.target.value/100;sun.intensity=3.8*strength;ambient.intensity=1.25*strength;$('light-strength-value').textContent=e.target.value+'%';});
 $('dither').addEventListener('input',e=>{const scale=+e.target.value;dither.uniforms.scale.value=scale;$('dither-value').textContent=scale===0?'0 · Off':scale+' px';$('ink').disabled=scale===0;$('ink').closest('.switch-row').classList.toggle('is-disabled',scale===0);});$('ink').addEventListener('change',e=>dither.uniforms.ink.value=+e.target.checked);$('wind').addEventListener('input',e=>{wind.strength=+e.target.value/100;$('wind-value').textContent=+e.target.value===0?'Calm':e.target.value+'%';});$('wind-direction').addEventListener('input',e=>{wind.direction=+e.target.value;water.windDirection=wind.direction;$('wind-direction-value').textContent=e.target.value+'°';});$('ripple').addEventListener('click',()=>splash(new THREE.Vector3(2+Math.random()*2,0,-2.5+Math.random()*2),6.5));$('pause').addEventListener('click',()=>{state.paused=!state.paused;$('pause').innerHTML=state.paused?'Resume <span>▷</span>':'Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed',String(state.paused));});$('home').addEventListener('click',home);$('reset').addEventListener('click',reset);$('rotate').addEventListener('click',rotateSelected);$('remove').addEventListener('click',()=>remove(state.selected));$('suspended').addEventListener('change',e=>state.selected&&setHang(state.selected,e.target.checked));$('cable').addEventListener('input',e=>state.selected&&setHang(state.selected,true,+e.target.value));$('colliders').addEventListener('change',e=>{state.debug=e.target.checked;for(const o of state.objects)o.debug.visible=state.debug;notify(state.debug?'Collision shapes visible · the arch opening is clear':'Collision shapes hidden');});$('settings-toggle').addEventListener('click',()=>{$('inspector').classList.toggle('open');$('settings-toggle').setAttribute('aria-expanded',String($('inspector').classList.contains('open')));});
 function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);composer.setSize(w,h);const aspect=w/h,available=w<760?w-26:w-305,vertical=Math.max(8.6,19.5*h/(2*available));camera.left=-vertical*aspect;camera.right=vertical*aspect;camera.top=vertical;camera.bottom=-vertical;camera.setViewOffset(w,h,w<760?0:130,0,w,h);camera.updateProjectionMatrix();dither.uniforms.resolution.value.set(w,h);}
