@@ -65,11 +65,11 @@ export class Ecology {
    }
    if(this.pointer){const away=new THREE.Vector3(p.x-this.pointer.x,0,p.z-this.pointer.z),d=away.length();if(d<.4&&d>.01)o.body.addForce(away.multiplyScalar((.4-d)*mass*12/d),true);}
    // Loose matter can enter the pool; buoyant support and an entry impulse couple it to the water.
-   const wet=inWater(p.x,p.z)&&p.y<.02;
-   if(wet){const u=(p.x-.5)/5,v=(p.z+4)/5,n=this.water?.size??1,index=Math.round(v*(n-1))*n+Math.round(u*(n-1)),surface=-.19+(this.water?.height[index]??0),draft=o.type==='seed'?.05:.009;
+   const waterView=this.terrain?.at(p.x,p.z),wet=(this.terrain?!!waterView:inWater(p.x,p.z))&&p.y<.02;
+   if(wet){const u=(p.x-.5)/5,v=(p.z+4)/5,n=this.water?.size??1,index=Math.round(v*(n-1))*n+Math.round(u*(n-1)),surface=-.19+(waterView?this.terrain.sample(waterView,p.x,p.z):(this.water?.height[index]??0)),draft=o.type==='seed'?.05:.009;
     const submerged=surface+draft-p.y;
     if(submerged>0)o.body.addForce({x:-velocity.x*mass*3,y:Math.min(35,9.81+submerged*60-velocity.y*6)*mass,z:-velocity.z*mass*3},true);
-    if(!o.lastWet)this.water?.disturb(u,v,Math.min(1.6,.25+Math.abs(velocity.y)*.3),.12);
+    if(!o.lastWet){const impulse=Math.min(1.6,.25+Math.abs(velocity.y)*.3);if(this.terrain)this.terrain.disturb(p.x,p.z,impulse);else this.water?.disturb(u,v,impulse,.12);}
    }
    o.lastWet=wet;
   }
@@ -90,7 +90,7 @@ export class Ecology {
   this.habitats=[...this.piles,...baths];
  }
  clearSpot(position,site){
-  if(site?.kind!=='bath'&&inWater(position.x,position.z))return false;const shape=new this.R.Ball(.11),p={x:position.x,y:position.y+.04,z:position.z};
+  if(site?.kind!=='bath'&&this.collision.layout.contains(position.x,position.z))return false;const shape=new this.R.Ball(.11),p={x:position.x,y:position.y+.04,z:position.z};
   for(const o of this.collision.objects){if(o===site?.object)continue;if(!o.geometry.boundingSphere)o.geometry.computeBoundingSphere();if(o.mesh.position.distanceTo(new THREE.Vector3(p.x,p.y,p.z))>o.geometry.boundingSphere.radius+.18)continue;for(const part of o.parts){const center=this.collision.position(part,o.mesh.position,o.mesh.quaternion);const c=shape.contactShape(p,IDENTITY,part.shape,center,o.mesh.quaternion,0);if(c&&c.distance<0)return false;}}
   return true;
  }

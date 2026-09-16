@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {PHYSICS_GROUND_PATCHES} from './terrain.js';
+import {HoleLayout} from './terrain.js';
 export const CEILING_HEIGHT = 8.5;
 const ZERO = {x:0,y:0,z:0};
 
@@ -16,12 +16,18 @@ export class PendulumScene {
     this.accumulator=0;
     this.objects=new Set();
     this.pull=null;
-    const slab=(w,h,d,x,y,z)=>this.world.createCollider(R.ColliderDesc.cuboid(w/2,h/2,d/2).setTranslation(x,y,z).setFriction(.65));
-    for(const p of PHYSICS_GROUND_PATCHES)slab(p.w,.4,p.d,p.x,-.2,p.z);
-    slab(5,.18,5,3,-.8,-1.5);
-    for(const [w,d,x,z]of [[.06,5,.52,-1.5],[.06,5,5.48,-1.5],[5,.06,3,-3.98],[5,.06,3,.98]])slab(w,.8,d,x,-.4,z);
+    this.terrainColliders=[];this.setTerrain(new HoleLayout());
     this.beforeStep=null;
 
+  }
+  setTerrain(layout){
+    for(const c of this.terrainColliders)this.world.removeCollider(c,true);
+    this.terrainColliders=[];
+    const slab=(p,h,y)=>this.terrainColliders.push(this.world.createCollider(this.R.ColliderDesc.cuboid(p.w/2,h/2,p.d/2).setTranslation(p.x,y,p.z).setFriction(.65)));
+    for(const p of layout.physicsGround)slab(p,.4,-.2);
+    for(const p of layout.bottom)slab(p,.18,-.8);
+    for(const p of layout.walls)slab(p,.8,-.4);
+    this.world.bodies.forEach(body=>{if(body.isDynamic())body.wakeUp();});
   }
   add(o) {
     const R=this.R,p=o.mesh.position;
