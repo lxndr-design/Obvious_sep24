@@ -3,7 +3,7 @@ const IDENTITY={x:0,y:0,z:0,w:1};
 // Position-based elastic strand: pinned root, inextensible segments, damped
 // inertia and a soft rest-shape force. Collision projection uses Rapier shapes.
 export class GrassStrand {
- constructor(root,height=1,lean=new THREE.Vector3(.08,0,0),count=9){
+ constructor(root,height=1,lean=new THREE.Vector3(.08,0,0),count=4){
   this.root=root.clone();this.height=height;this.segment=height/(count-1);this.radius=.018;this.tipRadius=.018;this.rest=[];this.nodes=[];this.previous=[];
   for(let i=0;i<count;i++){const t=i/(count-1),p=root.clone().add(new THREE.Vector3(lean.x*t*t,height*t,lean.z*t*t));this.rest.push(p);this.nodes.push(p.clone());this.previous.push(p.clone());}
  }

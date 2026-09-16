@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {bladeGeometry,flowerHead,birdMesh,seedForm} from './nature-shapes.js';
 import {GrassStrand,makeGrassCollider,prepareGrassColliders} from './grass.js';
 import {BirdColony,seededRandom} from './birds.js';
 import {inWater} from './terrain.js';
@@ -12,34 +12,10 @@ function leafGeometry(scale=1){
  for(let i=0;i<vertices.length;i++)vertices[i]*=scale;
  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(vertices,3));g.setIndex([0,1,4,1,2,4,2,3,4,3,0,4]);g.computeVertexNormals();g.computeBoundingSphere();return g;
 }
-function bladeGeometry(nodes){const g=new THREE.BufferGeometry(),index=[];g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nodes*4*3),3));for(let i=0;i<nodes-1;i++)for(let side=0;side<2;side++){const a=i*4+side*2,b=a+4;index.push(a,b,a+1,a+1,b,b+1);}g.setIndex(index);return g;}
-function flowerHead(kind,material){
- const group=new THREE.Group(),parts=[];
- if(kind==='daisy'){
-  for(let i=0;i<11;i++){const angle=i/11*Math.PI*2,g=new THREE.SphereGeometry(1,10,6);g.scale(.14,.025,.047);g.translate(.13,0,0);g.rotateY(angle);parts.push(g);}
-  group.add(new THREE.Mesh(mergeGeometries(parts),material));
-  const center=new THREE.Mesh(new THREE.SphereGeometry(.075,12,8),new THREE.MeshStandardMaterial({color:0xb9c0ac,roughness:1}));center.scale.y=.4;center.position.y=.027;group.add(center);
- }else{
-  const points=[];for(let i=0;i<42;i++){const y=1-2*(i+.5)/42,a=i*2.39996,r=Math.sqrt(1-y*y),end=new THREE.Vector3(Math.cos(a)*r,y,Math.sin(a)*r).multiplyScalar(.17);points.push(new THREE.Vector3(),end);const g=new THREE.SphereGeometry(.018,5,4);g.translate(end.x,end.y,end.z);parts.push(g);}
-  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:0xc8cebf})));
-  group.add(new THREE.Mesh(mergeGeometries(parts),material));
- }
- for(const p of parts)p.dispose();group.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});return group;
-}
-function birdMesh(){
- const group=new THREE.Group(),material=new THREE.MeshStandardMaterial({color:0xfafcf4,roughness:1,transparent:true,opacity:0}),dark=new THREE.MeshStandardMaterial({color:0x404b3c,roughness:1,transparent:true,opacity:0});
- const body=new THREE.Group();group.add(body);const ball=(x,y,z,sx,sy,sz,mat=material)=>{const mesh=new THREE.Mesh(new THREE.SphereGeometry(1,12,8),mat);mesh.position.set(x,y,z);mesh.scale.set(sx,sy,sz);mesh.castShadow=true;body.add(mesh);return mesh;};
- ball(0,.06,0,.19,.12,.115);ball(.145,.17,0,.083,.085,.074);ball(.19,.195,.056,.014,.014,.009,dark);ball(.19,.195,-.056,.014,.014,.009,dark);
- const beak=new THREE.Mesh(new THREE.ConeGeometry(.026,.095,6),dark);beak.rotation.z=-Math.PI/2;beak.position.set(.247,.15,0);body.add(beak);
- const tail=new THREE.Mesh(new THREE.ConeGeometry(.073,.23,3),material);tail.rotation.z=Math.PI/2-.25;tail.position.set(-.23,.07,0);body.add(tail);
- const wings=[ball(-.02,.09,.105,.17,.032,.084),ball(-.02,.09,-.105,.17,.032,.084)];
- for(const z of [-.052,.052]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,.14,5),dark);leg.position.set(.035,-.012,z);group.add(leg);}
- return {group,body,wings,materials:[material,dark]};
-}
 export class Ecology {
  constructor(scene,pendulums,collision,wind,R){
   this.scene=scene;this.pendulums=pendulums;this.world=pendulums.world;this.collision=collision;this.wind=wind;this.R=R;
-  this.group=new THREE.Group();scene.add(this.group);this.material=new THREE.MeshStandardMaterial({color:0xf8faf2,roughness:.95,side:THREE.DoubleSide});
+  this.group=new THREE.Group();scene.add(this.group);this.material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.95,side:THREE.DoubleSide});
   this.strands=[];this.loose=[];this.piles=[];this.birdViews=new Map();this.bathViews=new Map();this.habitats=[];this.colony=new BirdColony();this.random=seededRandom(731);this.accumulator=0;this.pointer=null;this.pointerScreen=null;this.water=null;this.lastLeafRead=0;this.clock=0;
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
   this.colony.onSplash=(position,site)=>this.bathViews.get(site.object)?.splash(position);
@@ -47,35 +23,34 @@ export class Ecology {
  }
  createPlants(){
   const patches=[[-6,3],[-5,-1.5],[-3.5,4.8],[.1,2.1],[2,5],[5.9,1.8],[6.5,-2.5],[-1.8,-4.5],[-6,-4.8],[1,-5.1],[5.9,-4.8],[-.2,-2.8],[-2,1.4],[7.5,4.5],[-8,-1],[8,-5],[-4,7],[4.4,6.7]];
-  for(const [x,z] of patches)for(let i=0;i<2;i++)this.addStrand(x+(this.random()-.5)*.2,z+(this.random()-.5)*.2,.65+this.random()*.9);
-  this.addStrand(-2.1,4.4,1.02,'daisy');this.addStrand(6.2,.8,.92,'dandelion');this.addStrand(-5.7,-3,.85,'daisy');
+  for(const [x,z] of patches)this.addStrand(x+(this.random()-.5)*.2,z+(this.random()-.5)*.2,.5+this.random()*.55);
+  this.addStrand(-2.1,4.4,.65,'daisy');this.addStrand(6.2,.8,.58,'dandelion');this.addStrand(-5.7,-3,.55,'daisy');
  }
  addStrand(x,z,height,flower=null){
-  const angle=this.random()*Math.PI*2,strand=new GrassStrand(new THREE.Vector3(x,.005,z),height,new THREE.Vector3(Math.cos(angle)*.12,0,Math.sin(angle)*.12));
+  const angle=this.random()*Math.PI*2,strand=new GrassStrand(new THREE.Vector3(x,.005,z),height,new THREE.Vector3(Math.cos(angle)*.08,0,Math.sin(angle)*.08),4);strand.radius=.01;
   const geometry=bladeGeometry(strand.nodes.length),mesh=new THREE.Mesh(geometry,this.material);mesh.castShadow=true;mesh.receiveShadow=true;mesh.frustumCulled=false;
-  const head=flower?flowerHead(flower,this.material):null;strand.tipRadius=flower==='daisy'?.24:flower==='dandelion'?.19:.018;if(head)this.group.add(head);this.group.add(mesh);this.strands.push({strand,mesh,head,angle,width:flower ? .012 : .032});
+  const head=flower?flowerHead(flower,this.material):null;strand.tipRadius=flower==='daisy'?.085:flower==='dandelion'?.075:.01;if(head)this.group.add(head);this.group.add(mesh);this.strands.push({strand,mesh,head,angle,width:flower ? .006 : .012});
  }
  addLoose(mesh,parts,type,pileId=null){
   mesh.castShadow=true;mesh.receiveShadow=true;this.group.add(mesh);
   const desc=this.R.RigidBodyDesc.dynamic().setTranslation(mesh.position.x,mesh.position.y,mesh.position.z).setRotation(mesh.quaternion).setCcdEnabled(true).setLinearDamping(type==='leaf'?1.4:.16).setAngularDamping(type==='leaf'?1.8:.35);
   const body=this.world.createRigidBody(desc);
-  for(const part of parts)this.world.createCollider(new this.R.ColliderDesc(part.shape).setTranslation(part.offset.x,part.offset.y,part.offset.z).setRotation(part.rotation??IDENTITY).setDensity(type==='leaf'?.13:.5).setFriction(type==='leaf'?.1:.8).setRestitution(type==='seed'?0:.1).setContactSkin(type==='seed'?.003:0),body);
+  for(const part of parts)this.world.createCollider(new this.R.ColliderDesc(part.shape).setTranslation(part.offset.x,part.offset.y,part.offset.z).setRotation(part.rotation??IDENTITY).setDensity(type==='leaf'?.13:5).setFriction(type==='leaf'?.1:.8).setRestitution(type==='seed'?0:.1).setContactSkin(type==='seed'?.001:0),body);
   const object={mesh,geometry:mesh.geometry,parts,body,type,pileId,spawn:mesh.position.clone(),spawnRotation:mesh.quaternion.clone(),lastWet:false};this.loose.push(object);return object;
  }
  createLoose(){
   const pilePositions=[[-.7,5.1],[-5.4,-.7],[6.4,2.5],[2,-5.3]];
   pilePositions.forEach(([x,z],id)=>{
-   this.piles.push({id,position:new THREE.Vector3(x,0,z),count:8});
-   for(let i=0;i<8;i++){
-    const geometry=leafGeometry(.75+this.random()*.7),mesh=new THREE.Mesh(geometry,this.material);mesh.position.set(x+(this.random()-.5)*.8,.04+i*.028,z+(this.random()-.5)*.65);mesh.rotation.set((this.random()-.5)*.25,this.random()*Math.PI*2,(this.random()-.5)*.35);
+   this.piles.push({id,position:new THREE.Vector3(x,0,z),count:4});
+   for(let i=0;i<4;i++){
+    const angle=i*Math.PI/2+id*.7+(this.random()-.5)*.25,radius=.36+this.random()*.18;
+    const geometry=leafGeometry(.30+this.random()*.16),mesh=new THREE.Mesh(geometry,this.material);mesh.position.set(x+Math.cos(angle)*radius,.025,z+Math.sin(angle)*radius);mesh.rotation.set((this.random()-.5)*.25,this.random()*Math.PI*2,(this.random()-.5)*.35);
     const vertices=Array.from(geometry.attributes.position.array),bottom=[];for(let j=0;j<vertices.length;j+=3)bottom.push(vertices[j],vertices[j+1]-.008,vertices[j+2]);
     this.addLoose(mesh,[{shape:new this.R.ConvexPolyhedron(new Float32Array([...vertices,...bottom])),offset:new THREE.Vector3()}],'leaf',id);
    }
   });
   for(const [x,z]of [[-3.5,5.4],[5.9,-.3],[.1,-4.8]]){
-   const parts=[{shape:new this.R.Ball(.16),offset:new THREE.Vector3()}],geometries=[new THREE.SphereGeometry(.16,16,10)];
-   for(let i=0;i<22;i++){const y=1-2*(i+.5)/22,a=i*2.39996,r=Math.sqrt(1-y*y),direction=new THREE.Vector3(Math.cos(a)*r,y,Math.sin(a)*r),q=new THREE.Quaternion().setFromUnitVectors(UP,direction),offset=direction.clone().multiplyScalar(.19),g=new THREE.ConeGeometry(.035,.13,5);g.applyQuaternion(q);g.translate(offset.x,offset.y,offset.z);geometries.push(g);parts.push({shape:new this.R.Cone(.065,.035),offset,rotation:q});}
-   const mesh=new THREE.Mesh(mergeGeometries(geometries),this.material);for(const g of geometries)g.dispose();mesh.position.set(x,.27,z);this.addLoose(mesh,parts,'seed');
+   const {geometry,parts}=seedForm(this.R),mesh=new THREE.Mesh(geometry,this.material);mesh.position.set(x,.12,z);this.addLoose(mesh,parts,'seed');
   }
  }
  setPointer(point,screen){this.pointer=point?.clone()??null;this.pointerScreen=screen??null;}
@@ -83,15 +58,15 @@ export class Ecology {
   this.wind.step(dt);
   for(const o of this.loose){const p=o.body.translation(),velocity=o.body.linvel(),w=this.wind.sample(p.x,p.z),mass=o.body.mass();o.body.resetForces(false);o.body.resetTorques(false);
    const active=w.lengthSq()>1e-8;
-   if(active){const arm=o.type==='seed'?.12:.025,angular=o.body.angvel();
+   if(active){const arm=o.type==='seed'?.035:.012,angular=o.body.angvel();
     const force=new THREE.Vector3(w.x*4-(velocity.x-angular.z*arm),0,w.z*4-(velocity.z+angular.x*arm)).multiplyScalar(mass*(o.type==='seed'?1.6:1.1));
     if(o.type==='leaf'){force.y=mass*Math.max(0,w.length()-.3)*5; o.body.addTorque({x:w.z*mass*.045,y:Math.sin(this.wind.time*2+o.spawn.x)*w.length()*mass*.025,z:-w.x*mass*.045},true);}
-    o.body.addForceAtPoint(force,{x:p.x,y:p.y+(o.type==='seed'?.12:.025),z:p.z},true);
+    o.body.addForceAtPoint(force,{x:p.x,y:p.y+(o.type==='seed'?.035:.012),z:p.z},true);
    }
    if(this.pointer){const away=new THREE.Vector3(p.x-this.pointer.x,0,p.z-this.pointer.z),d=away.length();if(d<.4&&d>.01)o.body.addForce(away.multiplyScalar((.4-d)*mass*12/d),true);}
    // Loose matter can enter the pool; buoyant support and an entry impulse couple it to the water.
    const wet=inWater(p.x,p.z)&&p.y<.02;
-   if(wet){const u=(p.x-.5)/5,v=(p.z+4)/5,n=this.water?.size??1,index=Math.round(v*(n-1))*n+Math.round(u*(n-1)),surface=-.19+(this.water?.height[index]??0),draft=o.type==='seed'?.12:.018;
+   if(wet){const u=(p.x-.5)/5,v=(p.z+4)/5,n=this.water?.size??1,index=Math.round(v*(n-1))*n+Math.round(u*(n-1)),surface=-.19+(this.water?.height[index]??0),draft=o.type==='seed'?.05:.009;
     const submerged=surface+draft-p.y;
     if(submerged>0)o.body.addForce({x:-velocity.x*mass*3,y:Math.min(35,9.81+submerged*60-velocity.y*6)*mass,z:-velocity.z*mass*3},true);
     if(!o.lastWet)this.water?.disturb(u,v,Math.min(1.6,.25+Math.abs(velocity.y)*.3),.12);
@@ -115,7 +90,7 @@ export class Ecology {
   this.habitats=[...this.piles,...baths];
  }
  clearSpot(position,site){
-  if(site?.kind!=='bath'&&inWater(position.x,position.z))return false;const shape=new this.R.Ball(.16),p={x:position.x,y:position.y+.14,z:position.z};
+  if(site?.kind!=='bath'&&inWater(position.x,position.z))return false;const shape=new this.R.Ball(.11),p={x:position.x,y:position.y+.04,z:position.z};
   for(const o of this.collision.objects){if(o===site?.object)continue;if(!o.geometry.boundingSphere)o.geometry.computeBoundingSphere();if(o.mesh.position.distanceTo(new THREE.Vector3(p.x,p.y,p.z))>o.geometry.boundingSphere.radius+.18)continue;for(const part of o.parts){const center=this.collision.position(part,o.mesh.position,o.mesh.quaternion);const c=shape.contactShape(p,IDENTITY,part.shape,center,o.mesh.quaternion,0);if(c&&c.distance<0)return false;}}
   return true;
  }
@@ -145,7 +120,10 @@ export class Ecology {
  }
  updateBlade({strand,mesh,head,angle,width}){
   const a=mesh.geometry.attributes.position;
-  for(let i=0;i<strand.nodes.length;i++){const p=strand.nodes[i],t=i/(strand.nodes.length-1),w=width*(1-t)*(.7+.3*Math.sin(t*Math.PI));for(let axis=0;axis<2;axis++){const q=angle+axis*Math.PI/2,dx=Math.cos(q)*w,dz=Math.sin(q)*w;for(let side=0;side<2;side++){const sign=side===0?-1:1;a.setXYZ(i*4+axis*2+side,p.x+dx*sign,p.y,p.z+dz*sign);}}}
+  for(let i=0;i<strand.nodes.length;i++){
+   const p=strand.nodes[i],t=i/(strand.nodes.length-1),w=width*(1-t),dx=Math.cos(angle)*w,dz=Math.sin(angle)*w;
+   a.setXYZ(i*2,p.x-dx,p.y,p.z-dz);a.setXYZ(i*2+1,p.x+dx,p.y,p.z+dz);
+  }
   a.needsUpdate=true;mesh.geometry.computeVertexNormals();
   if(head){const tip=strand.nodes.at(-1),direction=tip.clone().sub(strand.nodes.at(-2)).normalize();head.position.copy(tip);head.quaternion.setFromUnitVectors(UP,direction);}
  }

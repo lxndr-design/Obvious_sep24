@@ -25,25 +25,18 @@ const camera=new THREE.OrthographicCamera(-11,11,8,-8,.1,1200);
 const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;controls.dampingFactor=.1;controls.enablePan=true;controls.minZoom=.55;controls.maxZoom=2.2;controls.minPolarAngle=.3;controls.maxPolarAngle=Math.PI/2.2;controls.mouseButtons={LEFT:null,MIDDLE:THREE.MOUSE.PAN,RIGHT:THREE.MOUSE.ROTATE};controls.touches={ONE:null,TWO:THREE.TOUCH.DOLLY_PAN};
 function home(){camera.position.set(18,18.4,18);controls.target.set(0,.4,0);camera.zoom=1;camera.updateProjectionMatrix();controls.update();}
 home();
-const ambient=new THREE.HemisphereLight(0xffffff,0x798574,1.25);scene.add(ambient);const sun=new THREE.DirectionalLight(0xffffff,3.8);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-12,right:12,top:12,bottom:-12,near:1,far:45});sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;scene.add(sun,sun.target);let sunAngle=135,lastSunZoom=0;function followSun(){const x=controls.target.x,z=controls.target.z;if(sun.target.position.x===x&&sun.target.position.z===z&&lastSunZoom===camera.zoom)return;sun.target.position.set(x,0,z);const a=sunAngle*Math.PI/180;sun.position.set(x+Math.cos(a)*12,17,z+Math.sin(a)*12);const span=Math.max(12,16/camera.zoom);Object.assign(sun.shadow.camera,{left:-span,right:span,top:span,bottom:-span});sun.shadow.camera.updateProjectionMatrix();lastSunZoom=camera.zoom;renderer.shadowMap.needsUpdate=true;}function setSun(v){sunAngle=v;lastSunZoom=0;followSun();}$('sun').value=135;setSun(135);
+const ambient=new THREE.HemisphereLight(0xffffff,0x969696,1.25);scene.add(ambient);const sun=new THREE.DirectionalLight(0xffffff,3.8);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-12,right:12,top:12,bottom:-12,near:1,far:45});sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;scene.add(sun,sun.target);let sunAngle=135,lastSunZoom=0;function followSun(){const x=controls.target.x,z=controls.target.z;if(sun.target.position.x===x&&sun.target.position.z===z&&lastSunZoom===camera.zoom)return;sun.target.position.set(x,0,z);const a=sunAngle*Math.PI/180;sun.position.set(x+Math.cos(a)*12,17,z+Math.sin(a)*12);const span=Math.max(12,16/camera.zoom);Object.assign(sun.shadow.camera,{left:-span,right:span,top:span,bottom:-span});sun.shadow.camera.updateProjectionMatrix();lastSunZoom=camera.zoom;renderer.shadowMap.needsUpdate=true;}function setSun(v){sunAngle=v;lastSunZoom=0;followSun();}$('sun').value=135;setSun(135);
 const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));const dither=new ShaderPass(DitherShader);composer.addPass(dither);
 const white=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.88,metalness:0});
 function block(w,h,d,x,y,z,material=white){const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;scene.add(mesh);return mesh;}
 // Expansive flush ground: the pool is an opening, not a freestanding platform.
 for(const patch of GROUND_PATCHES){const floor=new THREE.Mesh(new THREE.PlaneGeometry(patch.w,patch.d),white);floor.rotation.x=-Math.PI/2;floor.position.set(patch.x,0,patch.z);floor.receiveShadow=true;scene.add(floor);}
-block(5,.18,5,3,-.8,-1.5,new THREE.MeshStandardMaterial({color:0x64786a,roughness:1}));
+block(5,.18,5,3,-.8,-1.5,new THREE.MeshStandardMaterial({color:0xffffff,roughness:1}));
 for(const [w,d,x,z]of [[.06,5,.52,-1.5],[.06,5,5.48,-1.5],[5,.06,3,-3.98],[5,.06,3,.98]])block(w,.8,d,x,-.4,z);
 const wind=new WindField();
 const water=new WaveField(129,5);
 const waterGeometry=new THREE.PlaneGeometry(5,5,128,128);waterGeometry.rotateX(-Math.PI/2);waterGeometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),3.75);
-const waterMaterial=new THREE.MeshPhongMaterial({color:0x354f43,specular:0xf4ffe8,shininess:130,side:THREE.DoubleSide});
-waterMaterial.onBeforeCompile=shader=>{
- shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 waveNormal; varying float surfaceHeight;').replace('#include <begin_vertex>','#include <begin_vertex>\nwaveNormal=normal; surfaceHeight=position.y;');
- shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 waveNormal; varying float surfaceHeight;').replace('#include <color_fragment>',`#include <color_fragment>
- float reflection=smoothstep(.65,.87,dot(normalize(waveNormal),normalize(vec3(.75,1.,.45))));
- float crest=smoothstep(.05,.22,surfaceHeight);
- diffuseColor.rgb=mix(diffuseColor.rgb*.55,vec3(.74,.79,.70),reflection*reflection*.8+crest*.16);`);
-};
+const waterMaterial=new THREE.MeshPhongMaterial({color:0xffffff,specular:0xffffff,shininess:130,side:THREE.DoubleSide});
 const waterMesh=new THREE.Mesh(waterGeometry,waterMaterial);waterMesh.position.set(POOL.x,-.19,POOL.z);waterMesh.receiveShadow=true;scene.add(waterMesh);
 physics=new CollisionScene(RAPIER);physics.objects=state.objects;
 const pendulums=new PendulumScene(RAPIER);
@@ -51,11 +44,15 @@ const ecology=new Ecology(scene,pendulums,physics,wind,RAPIER);ecology.water=wat
 const objectGroup=new THREE.Group();scene.add(objectGroup);
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
 const cursorGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.24,.012,-.24),new THREE.Vector3(.24,.012,-.24),new THREE.Vector3(.24,.012,.24),new THREE.Vector3(-.24,.012,.24),new THREE.Vector3(-.24,.012,-.24)]);const gridCursor=new THREE.Line(cursorGeometry,new THREE.LineBasicMaterial({color:0x57794a,transparent:true,opacity:.7}));gridCursor.visible=false;scene.add(gridCursor);
-const cableMaterial=new THREE.ShaderMaterial({transparent:true,depthWrite:false,vertexShader:`varying float height;void main(){vec4 p=modelMatrix*vec4(position,1.);height=p.y;gl_Position=projectionMatrix*viewMatrix*p;}`,fragmentShader:`varying float height;void main(){float fade=1.-smoothstep(4.8,8.4,height);gl_FragColor=vec4(vec3(.23,.28,.22),fade*.8);}`});
+const cableMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9,transparent:true,depthWrite:false});
+cableMaterial.onBeforeCompile=shader=>{
+ shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying float cableHeight;').replace('#include <begin_vertex>','#include <begin_vertex>\ncableHeight=(modelMatrix*vec4(transformed,1.)).y;');
+ shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying float cableHeight;').replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.a*=(1.-smoothstep(4.8,8.4,cableHeight))*.8;');
+};
 function createCable(object){
  const cable=new THREE.Group();
  const line=new THREE.Mesh(new THREE.CylinderGeometry(.011,.011,1,5),cableMaterial);
- const clasp=new THREE.Mesh(new THREE.TorusGeometry(.06,.016,6,12),new THREE.MeshStandardMaterial({color:0x606f5a,roughness:.8}));
+ const clasp=new THREE.Mesh(new THREE.TorusGeometry(.06,.016,6,12),new THREE.MeshStandardMaterial({color:0xffffff,roughness:.8}));
  const handle=new THREE.Mesh(new THREE.TorusGeometry(.13,.022,8,24),new THREE.MeshBasicMaterial({color:0x65745c,transparent:true,opacity:.7,depthTest:false}));
  handle.renderOrder=9;
  const hit=new THREE.Mesh(new THREE.SphereGeometry(.3,12,8),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
