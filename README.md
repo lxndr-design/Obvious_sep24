@@ -1,4 +1,4 @@
-# Whitewater
+# Eternity
 
 An open, dithered Three.js landscape with interactive water, draggable forms, pendulums and a sparse white meadow. `npm install` and `npm run dev` start it locally; `npm run build` produces the static app in `dist/`. `npm test` runs the simulation checks.
 

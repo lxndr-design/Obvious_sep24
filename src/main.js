@@ -74,9 +74,9 @@ function addObject(type,position=null,hanging=false,cableLength=5){if(state.obje
  const y=hanging?8.5-cableLength-form.height/2:form.height/2;
  if(position){mesh.position.set(position[0],y,position[1]);if(!physics.canPlace(o,mesh.position)){form.geometry.dispose();mesh.material.dispose();return null;}}
  else {let found=false;const centerX=Math.round(controls.target.x/GRID)*GRID,centerZ=Math.round(controls.target.z/GRID)*GRID;for(let z=centerZ+3.5;z>=centerZ-4.5&&!found;z-=GRID)for(let x=centerX-5.5;x<=centerX+5.5&&!found;x+=GRID){mesh.position.set(x,y,z);if(physics.canPlace(o,mesh.position))found=true;}if(!found){form.geometry.dispose();mesh.material.dispose();notify('No clear floor space for this form.');return null;}}
- objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(form.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);count();return o;}
-function count(){$('object-count').textContent=`${state.objects.length} forms`;}
-function notify(text){$('notice').textContent=text;}
+ objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(form.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);return o;}
+let noticeTimer;
+function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
 function select(o){state.selected=o;selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=LABELS[o.type];const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(1)}, ${coordinates.z.toFixed(1)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging;$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
 function setHang(o,hanging,length=o.cableLength){
  const position=o.mesh.position.clone(),rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),new THREE.Euler().setFromQuaternion(o.mesh.quaternion,'YXZ').y);
@@ -90,9 +90,9 @@ function setHang(o,hanging,length=o.cableLength){
 function remove(o){
  if(!o)return;if(state.drag?.object===o)endDrag();pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
- o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);select(null);count();notify('Form removed');
+ o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);select(null);notify('Form removed');
 }
-function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);addObject('bench',[-4,-5]);addObject('birdbath',[6.5,0]);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('Drag a form to arrange the scene');}
+function reset(){cancelDrag();for(const o of [...state.objects])remove(o);state.sequence=0;addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);addObject('bench',[-4,-5]);addObject('birdbath',[6.5,0]);select(null);water.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
 function hitWater(){const hits=raycaster.intersectObject(waterMesh);if(!hits.length)return null;return hits[0].point;}
@@ -123,7 +123,7 @@ canvas.addEventListener('pointerdown',event=>{
   canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
   notify(mode==='pull'?'Pull freely · release to swing · Esc to cancel':mode==='anchor'?'Reposition the ceiling anchor · grid locked':'Grid locked · release to place · Esc to cancel');
  }else if(picked?.water){select(null);splash(picked.hit);state.drag={water:true,id:event.pointerId,last:performance.now(),previous:waterUV(picked.hit)};canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
- else{select(null);notify('Drag a form · top rings move anchors · pull hanging forms to swing');}
+ else{select(null);notify('');}
 });
 canvas.addEventListener('pointermove',event=>{
  ray(event);trackPointer(event);if(!state.drag){const hit=pick();canvas.style.cursor=hit?.object?'grab':hit?.water?'crosshair':'default';return;}
@@ -187,7 +187,7 @@ $('sun').addEventListener('input',e=>{setSun(+e.target.value);$('sun-value').tex
 $('dither').addEventListener('input',e=>{const scale=+e.target.value;dither.uniforms.scale.value=scale;$('dither-value').textContent=scale===0?'0 · Off':scale+' px';$('ink').disabled=scale===0;$('tone-colors').disabled=scale===0;$('tone-hint').textContent=scale===0?'Turn dithering on to use ink and paper colors.':'Two-tone uses just these two colors. Turn it off for shades between them.';$('ink').closest('.switch-row').classList.toggle('is-disabled',scale===0);});$('ink').addEventListener('change',e=>dither.uniforms.ink.value=+e.target.checked);$('wind').addEventListener('input',e=>{wind.strength=+e.target.value/100;$('wind-value').textContent=+e.target.value===0?'Calm':e.target.value+'%';});$('wind-direction').addEventListener('input',e=>{wind.direction=+e.target.value;water.windDirection=wind.direction;$('wind-direction-value').textContent=e.target.value+'°';});$('ripple').addEventListener('click',()=>splash(new THREE.Vector3(2+Math.random()*2,0,-2.5+Math.random()*2),6.5));$('pause').addEventListener('click',()=>{state.paused=!state.paused;$('pause').innerHTML=state.paused?'Resume <span>▷</span>':'Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed',String(state.paused));});$('home').addEventListener('click',home);$('reset').addEventListener('click',reset);$('rotate').addEventListener('click',rotateSelected);$('remove').addEventListener('click',()=>remove(state.selected));$('suspended').addEventListener('change',e=>state.selected&&setHang(state.selected,e.target.checked));$('cable').addEventListener('input',e=>state.selected&&setHang(state.selected,true,+e.target.value));$('colliders').addEventListener('change',e=>{state.debug=e.target.checked;for(const o of state.objects)o.debug.visible=state.debug;notify(state.debug?'Collision shapes visible · the arch opening is clear':'Collision shapes hidden');});$('settings-toggle').addEventListener('click',()=>{$('inspector').classList.toggle('open');$('settings-toggle').setAttribute('aria-expanded',String($('inspector').classList.contains('open')));});
 function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);composer.setSize(w,h);const aspect=w/h,available=w<760?w-26:w-305,vertical=Math.max(8.6,19.5*h/(2*available));camera.left=-vertical*aspect;camera.right=vertical*aspect;camera.top=vertical;camera.bottom=-vertical;camera.setViewOffset(w,h,w<760?0:130,0,w,h);camera.updateProjectionMatrix();dither.uniforms.resolution.value.set(w,h);}
 window.addEventListener('resize',resize);resize();reset();
-let previous=performance.now(),fpsTime=previous,frames=0;
+let previous=performance.now();
 let shadowClock=0;
 function tick(now){
  requestAnimationFrame(tick);const dt=Math.min((now-previous)/1000,.05);previous=now;if(document.hidden)return;
@@ -204,8 +204,7 @@ function tick(now){
  // Meadow shadows update at 30 Hz; water shading and physical motion remain smooth.
  shadowClock+=dt;if(shadowClock>=1/30){renderer.shadowMap.needsUpdate=true;shadowClock=0;}
  if(state.selected)selectionBox.setFromObject(state.selected.mesh);
- composer.render();frames++;
- if(now-fpsTime>1500){$('runtime').textContent=`LIVE / ${Math.round(frames*1000/(now-fpsTime))} FPS`;frames=0;fpsTime=now;}
+ composer.render();
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
