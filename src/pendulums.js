@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {PHYSICS_GROUND_PATCHES} from './terrain.js';
 export const CEILING_HEIGHT = 8.5;
 const ZERO = {x:0,y:0,z:0};
 
@@ -16,13 +17,11 @@ export class PendulumScene {
     this.objects=new Set();
     this.pull=null;
     const slab=(w,h,d,x,y,z)=>this.world.createCollider(R.ColliderDesc.cuboid(w/2,h/2,d/2).setTranslation(x,y,z).setFriction(.65));
-    slab(7.5,.4,12,-3.25,-.2,0);slab(1.5,.4,12,6.25,-.2,0);
-    slab(5,.4,2,3,-.2,-5);slab(5,.4,5,3,-.2,3.5);
-    slab(5,.18,5,3,-.54,-1.5);
-    for(const [w,d,x,z]of [[.06,5,.52,-1.5],[.06,5,5.48,-1.5],[5,.06,3,-3.98],[5,.06,3,.98]])slab(w,.46,d,x,-.23,z);
-    // Match the editor's finite floor bounds without rendering extra walls.
-    slab(.2,20,12,-7.1,9,0);slab(.2,20,12,7.1,9,0);
-    slab(14,20,.2,0,9,-6.1);slab(14,20,.2,0,9,6.1);
+    for(const p of PHYSICS_GROUND_PATCHES)slab(p.w,.4,p.d,p.x,-.2,p.z);
+    slab(5,.18,5,3,-.8,-1.5);
+    for(const [w,d,x,z]of [[.06,5,.52,-1.5],[.06,5,5.48,-1.5],[5,.06,3,-3.98],[5,.06,3,.98]])slab(w,.8,d,x,-.4,z);
+    this.beforeStep=null;
+
   }
   add(o) {
     const R=this.R,p=o.mesh.position;
@@ -82,6 +81,7 @@ export class PendulumScene {
         const acceleration=new THREE.Vector3((target.x-p.x)*85-v.x*17,(target.y-p.y)*85-v.y*17+9.81,(target.z-p.z)*85-v.z*17).clampLength(0,95);
         o.body.resetForces(true);o.body.addForce(acceleration.multiplyScalar(o.body.mass()),true);
       }
+      this.beforeStep?.(this.dt);
       this.world.step();this.accumulator-=this.dt;stepped=true;
     }
     const changed=[];

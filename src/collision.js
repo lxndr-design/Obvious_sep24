@@ -6,7 +6,7 @@ export class CollisionScene {
  position(part,position,quaternion){return part.offset.clone().applyQuaternion(quaternion).add(position);}
  canPlace(object,position,quaternion=object.mesh.quaternion){
   const bounds=object.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().compose(position,quaternion,new THREE.Vector3(1,1,1)));
-  if(bounds.min.x< -7||bounds.max.x>7||bounds.min.z< -6||bounds.max.z>6||bounds.min.y<-.001)return false;
+  if(![position.x,position.y,position.z].every(Number.isFinite)||bounds.min.y<-.001)return false;
   for(const a of object.parts){const ap=this.position(a,position,quaternion);
    const pool=a.shape.contactShape(ap,quaternion,this.poolShape,{x:POOL.x,y:-.28,z:POOL.z},identity,0);if(pool&&pool.distance<-.001)return false;
    for(const other of this.objects){if(other===object)continue;for(const b of other.parts){const contact=a.shape.contactShape(ap,quaternion,b.shape,this.position(b,other.mesh.position,other.mesh.quaternion),other.mesh.quaternion,0);if(contact&&contact.distance<-.001)return false;}}
