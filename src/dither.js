@@ -32,6 +32,8 @@ export const DitherShader={
   float threshold=bayer8(pixel);
   float levels=mix(6.,1.,ink);
   float q=floor(clamp(l,0.,1.)*levels+threshold)/levels;
-  gl_FragColor=vec4(mix(inkColor,paperColor,q),1.);
+  // Colored wildlife keeps its chroma in shaded mode; two-tone still uses only its palette.
+  vec3 color=mix(inkColor,paperColor,q)+(c-vec3(l))*(1.-ink);
+  gl_FragColor=vec4(clamp(color,0.,1.),1.);
  }`
 };

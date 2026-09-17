@@ -36,13 +36,14 @@ test('water propagates through a joined seam, stays outside L-shaped ground, and
  assert.ok(Math.abs(terrain.sample(terrain.views[0],-10,0)-before)<.02,'existing wave retained on edit');
  layout.set([]);terrain.rebuild(layout);assert.equal(terrain.views.length,0);assert.equal(terrain.group.children.length,1);
 });
-test('moving holes rebuilds floor contacts, blocks placement over openings, and leaves no invisible seam collider',()=>{
+test('moving holes rebuilds floor contacts, supports pool-bottom placement, and leaves no invisible seam collider',()=>{
  const p=new PendulumScene(R),collision=new CollisionScene(R),layout=new HoleLayout([hole(1,-10,0),hole(2,-8,0)]);
  p.setTerrain(layout);collision.setTerrain(layout);p.step(1/120);
  const height=(x,z)=>p.world.castRay(new R.Ray({x,y:2,z},{x:0,y:-1,z:0}),5,true)?.timeOfImpact;
  assert.ok(Math.abs(height(-9,0)-2.71)<.001,'seam ray reaches the bottom');
  const f=makeForm('sphere',R),o={...f,mesh:new THREE.Mesh(f.geometry)};o.mesh.position.set(-10,.75,0);
- assert.equal(collision.canPlace(o,o.mesh.position),false);
+ assert.ok(Math.abs(collision.supportY(o,-10,0)-.04)<.002);
+ assert.equal(collision.canPlace(o,new THREE.Vector3(-10,.04,0)),true);
  const count=p.world.colliders.len();for(let i=0;i<4;i++)p.setTerrain(layout);assert.equal(p.world.colliders.len(),count,'old terrain colliders disposed');
  layout.set([hole(1,-15,0)]);p.setTerrain(layout);collision.setTerrain(layout);p.step(1/120);
  assert.ok(Math.abs(height(-10,0)-2)<.001,'old hole now supports ground');assert.equal(collision.canPlace(o,o.mesh.position),true);

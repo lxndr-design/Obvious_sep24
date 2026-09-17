@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {bladeGeometry,flowerHead,birdMesh,seedForm} from './nature-shapes.js';
+import {bladeGeometry,flowerHead,birdMesh,seedForm,BIRD_PALETTES} from './nature-shapes.js';
 import {GrassStrand,makeGrassCollider,prepareGrassColliders} from './grass.js';
 import {BirdColony,seededRandom} from './birds.js';
 import {inWater} from './terrain.js';
@@ -36,7 +36,7 @@ export class Ecology {
   const desc=this.R.RigidBodyDesc.dynamic().setTranslation(mesh.position.x,mesh.position.y,mesh.position.z).setRotation(mesh.quaternion).setCcdEnabled(true).setLinearDamping(type==='leaf'?1.4:.16).setAngularDamping(type==='leaf'?1.8:.35);
   const body=this.world.createRigidBody(desc);
   for(const part of parts)this.world.createCollider(new this.R.ColliderDesc(part.shape).setTranslation(part.offset.x,part.offset.y,part.offset.z).setRotation(part.rotation??IDENTITY).setDensity(type==='leaf'?.13:5).setFriction(type==='leaf'?.1:.8).setRestitution(type==='seed'?0:.1).setContactSkin(type==='seed'?.001:0),body);
-  const object={mesh,geometry:mesh.geometry,parts,body,type,pileId,spawn:mesh.position.clone(),spawnRotation:mesh.quaternion.clone(),lastWet:false};this.loose.push(object);return object;
+  const object={id:`${type}-${this.loose.filter(o=>o.type===type).length+1}`,mesh,geometry:mesh.geometry,parts,body,type,pileId,spawn:mesh.position.clone(),spawnRotation:mesh.quaternion.clone(),lastWet:false};this.loose.push(object);return object;
  }
  createLoose(){
   const pilePositions=[[-.7,5.1],[-5.4,-.7],[6.4,2.5],[2,-5.3]];
@@ -56,7 +56,7 @@ export class Ecology {
  setPointer(point,screen){this.pointer=point?.clone()??null;this.pointerScreen=screen??null;}
  beforeStep(dt){
   this.wind.step(dt);
-  for(const o of this.loose){const p=o.body.translation(),velocity=o.body.linvel(),w=this.wind.sample(p.x,p.z),mass=o.body.mass();o.body.resetForces(false);o.body.resetTorques(false);
+  for(const o of this.loose){if(!o.body.isDynamic())continue;const p=o.body.translation(),velocity=o.body.linvel(),w=this.wind.sample(p.x,p.z),mass=o.body.mass();o.body.resetForces(false);o.body.resetTorques(false);
    const active=w.lengthSq()>1e-8;
    if(active){const arm=o.type==='seed'?.035:.012,angular=o.body.angvel();
     const force=new THREE.Vector3(w.x*4-(velocity.x-angular.z*arm),0,w.z*4-(velocity.z+angular.x*arm)).multiplyScalar(mass*(o.type==='seed'?1.6:1.1));
@@ -114,7 +114,7 @@ export class Ecology {
   // Screen-space proximity also scares birds in midair, not just birds beneath the ground ray.
   if(camera&&this.pointerScreen)for(const bird of this.colony.birds){const projected=bird.position.clone().project(camera),x=(projected.x+1)*width/2,y=(1-projected.y)*height/2;if(Math.hypot(x-this.pointerScreen.x,y-this.pointerScreen.y)<60)this.colony.depart(bird,this.pointer);}
   for(const [id,view]of this.birdViews)if(!this.colony.birds.some(b=>b.id===id)){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();this.birdViews.delete(id);}
-  for(const bird of this.colony.birds){let view=this.birdViews.get(bird.id);if(!view){view=birdMesh();this.birdViews.set(bird.id,view);this.group.add(view.group);}view.group.position.copy(bird.position);view.group.rotation.y=bird.yaw;view.body.rotation.z=-bird.peck*.52;
+  for(const bird of this.colony.birds){let view=this.birdViews.get(bird.id);if(!view){view=birdMesh(BIRD_PALETTES[(bird.id-1)%BIRD_PALETTES.length]);this.birdViews.set(bird.id,view);this.group.add(view.group);}view.group.position.copy(bird.position);view.group.rotation.y=bird.yaw;view.body.rotation.z=-bird.peck*.52;
    view.wings[0].rotation.x=bird.wing;view.wings[1].rotation.x=-bird.wing;for(const m of view.materials)m.opacity=bird.opacity;view.group.traverse(o=>{if(o.isMesh)o.castShadow=bird.opacity>.7;});
   }
  }
@@ -131,5 +131,5 @@ export class Ecology {
   for(const o of this.loose){o.body.setTranslation(o.spawn,true);o.body.setRotation(o.spawnRotation,true);o.body.setLinvel({x:0,y:0,z:0},true);o.body.setAngvel({x:0,y:0,z:0},true);o.body.resetForces(true);o.body.resetTorques(true);o.mesh.position.copy(o.spawn);o.mesh.quaternion.copy(o.spawnRotation);o.lastWet=false;}
   for(const item of this.strands){item.strand.reset();this.updateBlade(item);}this.colony.reset();for(const view of this.birdViews.values()){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();}this.birdViews.clear();for(const view of this.bathViews.values())view.dispose();this.bathViews.clear();this.habitats=[];this.accumulator=0;this.pointer=null;this.pointerScreen=null;
  }
- read(){return {grassStrands:this.strands.length,leaves:this.loose.filter(o=>o.type==='leaf').length,seedPods:this.loose.filter(o=>o.type==='seed').map(o=>({position:o.mesh.position.toArray(),velocity:o.body.linvel()})),piles:this.piles.map(p=>({id:p.id,count:p.count,position:p.position.toArray()})),baths:[...this.bathViews].map(([o,view])=>({objectId:o.id,active:view.group.visible,splashes:view.splashCount})),birds:this.colony.birds.map(b=>({habitat:b.habitat,state:b.state,position:b.position.toArray(),opacity:b.opacity,pile:b.pileId}))};}
+ read(){return {grassStrands:this.strands.length,leaves:this.loose.filter(o=>o.type==='leaf').length,seedPods:this.loose.filter(o=>o.type==='seed').map(o=>({id:o.id,position:o.mesh.position.toArray(),velocity:o.body.linvel()})),piles:this.piles.map(p=>({id:p.id,count:p.count,position:p.position.toArray()})),baths:[...this.bathViews].map(([o,view])=>({objectId:o.id,active:view.group.visible,splashes:view.splashCount})),birds:this.colony.birds.map(b=>({color:BIRD_PALETTES[(b.id-1)%BIRD_PALETTES.length].name,habitat:b.habitat,state:b.state,position:b.position.toArray(),opacity:b.opacity,pile:b.pileId}))};}
 }

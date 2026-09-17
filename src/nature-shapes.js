@@ -20,9 +20,17 @@ export function flowerHead(kind,material){
  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setIndex(indices);geometry.computeVertexNormals();
  const mesh=new THREE.Mesh(geometry,material);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);return group;
 }
-export function birdMesh(){
+export const BIRD_PALETTES=[
+ {name:'Blue',body:0x527fa3,wing:0x334f72},
+ {name:'Rust',body:0xb97550,wing:0x775047},
+ {name:'Gold',body:0xc5a34c,wing:0x827340},
+ {name:'Charcoal',body:0x555c67,wing:0x303642},
+ {name:'White',body:0xf4f1e7,wing:0xbcc5cd},
+];
+export function birdMesh(palette=null){
  const group=new THREE.Group(),body=new THREE.Group();group.add(body);
- const material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,transparent:true,opacity:0,side:THREE.DoubleSide,flatShading:true});
+ const material=new THREE.MeshStandardMaterial({color:palette?.body??0xffffff,roughness:1,transparent:true,opacity:0,side:THREE.DoubleSide,flatShading:true});
+ const wingMaterial=material.clone();wingMaterial.color.setHex(palette?.wing??0xffffff);
  // One continuous beak/head/breast/back/tail profile, rather than stacked spheres.
  const outline=new THREE.Shape();
  const points=[[-.20,.055],[-.09,.015],[-.015,-.025],[.055,-.013],[.085,.035],[.155,.052],[.111,.072],[.09,.10],[.052,.105],[.028,.075],[-.025,.045],[-.20,.09]];
@@ -32,11 +40,11 @@ export function birdMesh(){
  const wings=[];
  for(const sign of [1,-1]){
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute([.045,0,0,-.09,.006,sign*.025,-.13,.012,sign*.09,-.005,.01,sign*.065],3));g.setIndex([0,1,2,0,2,3]);g.computeVertexNormals();
-  const wing=new THREE.Mesh(g,material);wing.position.set(-.015,.016,sign*.024);wing.castShadow=true;wing.receiveShadow=true;body.add(wing);wings.push(wing);
+  const wing=new THREE.Mesh(g,wingMaterial);wing.position.set(-.015,.016,sign*.024);wing.castShadow=true;wing.receiveShadow=true;body.add(wing);wings.push(wing);
  }
  const feet=new THREE.BufferGeometry();feet.setAttribute('position',new THREE.Float32BufferAttribute([.019,-.08,.015,.029,-.08,.015,.032,-.015,.015,.019,-.08,-.015,.029,-.08,-.015,.032,-.015,-.015],3));feet.computeVertexNormals();
  const legs=new THREE.Mesh(feet,material);legs.castShadow=true;group.add(legs);
- return {group,body,wings,materials:[material]};
+ return {group,body,wings,materials:[material,wingMaterial]};
 }
 export function seedForm(R){
  const geometries=[],parts=[];
