@@ -155,6 +155,9 @@ canvas.addEventListener('pointermove',event=>{
  if(mode==='seed'){sling.aim(target);slingGuide.update(sling);return;}
  if(mode==='pull'){pendulums.setPullTarget(target);return;}
  target.x=Math.round(target.x/GRID)*GRID;target.z=Math.round(target.z/GRID)*GRID;target.y=mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y;
+ // Pointer events often repeat the same snapped target. Do collision work once.
+ if(state.drag.lastTarget?.equals(target))return;
+ state.drag.lastTarget=target.clone();
  gridCursor.position.set(target.x,0,target.z);
  const moved=mode==='pool'?moveHole(o,target):mode==='anchor'?pendulums.moveAnchor(o,target,physics):moveGround(o,target);
 
