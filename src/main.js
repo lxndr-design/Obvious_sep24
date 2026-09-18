@@ -329,12 +329,13 @@ function tick(now){
  if(!state.paused)terrain.step(dt,wind);
  // Meadow shadows update at 30 Hz; water shading and physical motion remain smooth.
  shadowClock+=dt;if(shadowClock>=1/30){renderer.shadowMap.needsUpdate=true;shadowClock=0;}
- presentation.step(dt);const restore=presentation.apply();
- for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
- if(state.selected)selectionBox.setFromObject(state.selected.mesh);
- dither.uniforms.hangingBlur.value=+hangingFocus.render(renderer,camera,state.objects);
- refraction.render(renderer,scene,camera,[...terrain.views.map(v=>v.mesh),...[...ecology.bathViews.values()].map(v=>v.mesh)]);
- composer.render();restore();
+ presentation.step(dt);presentation.withPresentation(()=>{
+  for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
+  if(state.selected)selectionBox.setFromObject(state.selected.mesh);
+  dither.uniforms.hangingBlur.value=+hangingFocus.render(renderer,camera,state.objects);
+  refraction.render(renderer,scene,camera,[...terrain.views.map(v=>v.mesh),...[...ecology.bathViews.values()].map(v=>v.mesh)]);
+  composer.render();
+ });
  for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;

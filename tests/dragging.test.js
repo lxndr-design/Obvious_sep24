@@ -36,7 +36,7 @@ test('render easing is monotonic, frame-rate independent, and never changes logi
 test('ghosts have no hit target or collider and relocation fading restores original materials',()=>{
  const {add}=setup(),o=add('box',-9,0),scene=new THREE.Scene(),ghost=new DragGhost(scene),v=new DragPresentation();ghost.begin([o]);ghost.show(new THREE.Vector3(2,0,0));
  assert.equal(ghost.group.children[0].position.x,-7);assert.equal(o.mesh.position.x,-9);const hits=[];ghost.group.children[0].raycast(null,hits);assert.equal(hits.length,0);
- const material=o.mesh.material;v.animate(v.capture([o]),true);const restore=v.apply();assert.ok(o.mesh.material.transparent);assert.ok(o.mesh.material.opacity<1);restore();assert.equal(o.mesh.material,material);assert.equal(material.opacity,1);ghost.end();assert.equal(ghost.group.children.length,0);
+ const material=o.mesh.material;v.animate(v.capture([o]),true);const restore=v.apply();assert.equal(o.mesh.material.transparent,false);assert.equal(o.mesh.material.depthWrite,true);assert.equal(o.mesh.material.alphaHash,true);assert.ok(o.mesh.material.opacity<1);restore();assert.equal(o.mesh.material,material);assert.equal(material.opacity,1);ghost.end();assert.equal(ghost.group.children.length,0);
 });
 test('hanging focus masks only hanging geometry and keeps ground forms as depth occluders',()=>{
  const {add,c}=setup(),a=add('sphere',-9,0),b=add('box',-6,0),focus=new HangingFocus();a.hanging=true;
@@ -59,4 +59,20 @@ test('rotation easing follows a rigid stack arc, settles quickly, and restores c
 test('repeated rotations retarget from the displayed pose without a jump',()=>{
  const {s,add}=setup(),o=add('arch',-8,0),v=new DragPresentation();let snapshot=v.capture([o]);assert.ok(s.rotate(o));v.animate(snapshot,false,o.mesh.position);v.step(.04);
  const shown=v.capture([o]);assert.ok(s.rotate(o));v.animate(shown,false,o.mesh.position);const restore=v.apply();assert.ok(o.mesh.quaternion.angleTo(shown[0].rotation)<1e-7);restore();
+});
+
+test('a failed render cannot accumulate visual offsets, turns or faded materials into the scene',()=>{
+ const {add}=setup(),o=add('arch',-8,0),v=new DragPresentation(),material=o.mesh.material,snapshot=v.capture([o]);o.mesh.position.x=-6;const position=o.mesh.position.clone();
+ v.animate(snapshot);for(let i=0;i<3;i++)assert.throws(()=>v.withPresentation(()=>{assert.ok(o.mesh.position.x<-6);throw Error('capture failed');}),/capture failed/);
+ assert.deepEqual(o.mesh.position,position);assert.equal(o.mesh.material,material);
+ v.animate(v.capture([o]),true);assert.throws(()=>v.withPresentation(()=>{assert.notEqual(o.mesh.material,material);throw Error('capture failed');}),/capture failed/);assert.equal(o.mesh.material,material);
+});
+test('drag ghosts and hanging masks follow replacement geometry after joins change',()=>{
+ const {add,c}=setup(),o=add('birdbath',-8,0),ghost=new DragGhost(new THREE.Scene()),focus=new HangingFocus();o.hanging=true;ghost.begin([o]);
+ const camera=new THREE.Camera();let target=null;const renderer={getRenderTarget:()=>target,setRenderTarget:t=>target=t,clear(){},render(){}};
+ focus.render(renderer,camera,c.objects);const old=o.geometry,next=new THREE.BoxGeometry();o.geometry=next;o.mesh.geometry=next;old.dispose();
+ ghost.show(new THREE.Vector3());focus.render(renderer,camera,c.objects);
+ assert.equal(ghost.group.children[0].geometry,next);assert.equal(focus.proxies.get(o).geometry,next);
+ renderer.render=()=>{throw Error('mask failed');};assert.throws(()=>focus.render(renderer,camera,c.objects),/mask failed/);assert.equal(target,null);
+ ghost.end();next.dispose();focus.target.dispose();focus.white.dispose();focus.black.dispose();
 });

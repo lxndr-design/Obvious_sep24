@@ -4,7 +4,7 @@ import * as THREE from 'three';
 // dither pass still handles the palette and pixel grid after light has refracted.
 export function refractiveWaterMaterial(base){
  const material=base.clone();
- const uniforms={waterScene:{value:null},waterDepth:{value:null},waterScreen:{value:new THREE.Vector2(1,1)},waterProjection:{value:new THREE.Matrix4()},waterInverseProjection:{value:new THREE.Matrix4()},waterCameraWorld:{value:new THREE.Matrix4()},waterReady:{value:0}};
+ const uniforms={waterScene:{value:null},waterDepth:{value:null},waterScreen:{value:new THREE.Vector2(1,1)},waterProjection:{value:new THREE.Matrix4()},waterInverseProjection:{value:new THREE.Matrix4()},waterCameraWorld:{value:new THREE.Matrix4()},waterReady:{value:0},waterBaseOpacity:{value:base.opacity}};
  material.userData.refraction=uniforms;
  material.onBeforeCompile=shader=>{
   Object.assign(shader.uniforms,uniforms);
@@ -16,12 +16,20 @@ export function refractiveWaterMaterial(base){
    uniform mat4 waterInverseProjection;
    uniform mat4 waterCameraWorld;
    uniform float waterReady;
+   uniform float waterBaseOpacity;
    vec3 waterViewPoint(vec2 uv){
     float depth=texture2D(waterDepth,uv).r;
     vec4 p=waterInverseProjection*vec4(uv*2.-1.,depth*2.-1.,1.);
     return p.xyz/p.w;
    }
    vec2 waterProject(vec3 p){vec4 clip=waterProjection*vec4(p,1.);return clip.xy/clip.w*.5+.5;}
+  `).replace('#include <alphahash_fragment>',`
+   #ifdef USE_ALPHAHASH
+    // Water normally composites a captured background as opaque. A relocation
+    // reveal must use its fade fraction, not its optical tint opacity.
+    diffuseColor.a=clamp(diffuseColor.a/max(waterBaseOpacity,.001),0.,1.);
+   #endif
+   #include <alphahash_fragment>
   `).replace('#include <opaque_fragment>',`
    if(waterReady>0.){
     vec2 originalUV=gl_FragCoord.xy/waterScreen;
@@ -49,16 +57,16 @@ export function refractiveWaterMaterial(base){
     // bright white basin visible instead of clipping it to paper white.
     vec3 transmitted=texture2D(waterScene,refractedUV).rgb*exp(-(.58+distanceBehind*.18));
     float grazing=pow(1.-clamp(dot(-incident,normal),0.,1.),5.);
-    float tint=clamp(opacity*.5+grazing*.25+distanceBehind*.035,.12,.65);
+    float tint=clamp(waterBaseOpacity*.5+grazing*.25+distanceBehind*.035,.12,.65);
     outgoingLight=mix(transmitted,outgoingLight,tint);
     // The capture already contains the background: alpha blending it again
     // would leave a second, perfectly straight copy of every submerged edge.
-    diffuseColor.a=1.;
+    diffuseColor.a=clamp(opacity/max(waterBaseOpacity,.001),0.,1.);
    }
    #include <opaque_fragment>
   `);
  };
- material.customProgramCacheKey=()=> 'water-refraction-v1';
+ material.customProgramCacheKey=()=> 'water-refraction-v2';
  return material;
 }
 const visible=o=>{for(let p=o;p;p=p.parent)if(!p.visible)return false;return true;};

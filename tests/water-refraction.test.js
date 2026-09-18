@@ -20,3 +20,23 @@ test('hidden basins skip capture and failed captures cannot leave water hidden o
  f.renderer.render=()=>{throw Error('render failed');};assert.throws(()=>f.capture.render(f.renderer,f.scene,f.camera,[f.a,f.b]),/render failed/);
  assert.equal(f.a.visible,true);assert.equal(f.b.visible,true);assert.equal(f.target(),f.previous);assert.equal(f.surface.userData.refraction.waterReady.value,0);f.capture.dispose();
 });
+
+test('drag fades preserve live refraction uniforms and the water shader across repeated captures',async()=>{
+ const {DragPresentation}=await import('../src/dragging.js');
+ const f=fixture(),body=new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial()),o={mesh:body};f.scene.add(body);body.add(f.a);
+ const presentation=new DragPresentation(),original=f.a.material;
+ presentation.animate(presentation.capture([o]),true);
+ for(let frame=0;frame<30;frame++){
+  presentation.step(1/60);presentation.withPresentation(()=>{
+   assert.equal(f.a.material.userData.refraction,original.userData.refraction);
+   assert.equal(f.a.material.onBeforeCompile,original.onBeforeCompile);
+   if(f.a.material!==original){assert.equal(f.a.material.alphaHash,true);assert.equal(f.a.material.depthWrite,true);assert.equal(f.a.material.transparent,false);}
+   assert.equal(f.a.material.customProgramCacheKey(),original.customProgramCacheKey());
+   assert.ok(f.capture.render(f.renderer,f.scene,f.camera,[f.a,f.b]));
+  });
+  assert.equal(f.a.material,original);assert.equal(body.material.transparent,false);
+ }
+ const shader={uniforms:{},fragmentShader:THREE.ShaderLib.phong.fragmentShader};original.onBeforeCompile(shader);
+ assert.equal(shader.uniforms.waterBaseOpacity.value,.48);assert.ok(shader.fragmentShader.includes('opacity/max(waterBaseOpacity,.001)'));
+ f.capture.dispose();
+});
