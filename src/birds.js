@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {animateBirdWings} from './bird-wings.js';
+import {stickLanding} from './sticks.js';
 import {feedBird} from './birdseed.js';
 export function seededRandom(seed=901){return ()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};}
 const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
-const available=site=>site.kind==='bath'||(site.kind==='seed'?site.count>0:site.count>=3);
+const available=site=>site.kind==='bath'||site.kind==='stick'||(site.kind==='seed'?site.count>0:site.count>=3);
 const settled=bird=>['foraging','perching','bathing','hopping','feeding','sated'].includes(bird.state);
 // Behavior is deterministic under a seed; leaf piles and bird baths share quiet-area rules.
 export class BirdColony {
@@ -15,7 +16,7 @@ export class BirdColony {
   for(const b of this.birds)if(b.state!=='departing'&&(startled.includes(b)||startled.some(n=>n.position.distanceTo(b.position)<1.4)))this.depart(b,position);
  }
  depart(b,from){
-  if(b.state==='departing')return;b.seedField?.release(b.id);b.state='departing';b.age=0;b.from=b.position.clone();
+  if(b.state==='departing')return;b.seedField?.release(b.id);b.stickCollection?.release(b.id);b.state='departing';b.age=0;b.from=b.position.clone();
   const away=b.position.clone().sub(from??b.position.clone().add(new THREE.Vector3(1,0,1)));away.y=0;if(away.lengthSq()<.01)away.set(-1,0,1);away.normalize();
   b.to=b.position.clone().addScaledVector(away,3.5).add(new THREE.Vector3(0,4.1,0));b.startOpacity=b.opacity;b.yaw=Math.atan2(-(b.to.z-b.from.z),b.to.x-b.from.x);
   this.quiet.set(b.pileId,this.time);this.nextArrival=Math.max(this.nextArrival,this.time+11);
@@ -37,11 +38,18 @@ export class BirdColony {
     const seed=food?.field.claim(b.position,b.id,food.id,p=>isClear(p.clone().setY(.08),food));
     if(seed){b.seedField=food.field;b.seedId=seed.id;b.eatTime=0;b.pileId=food.id;b.habitat='seed';b.target=seed.position.clone().setY(.08);b.sitePosition=food.position.clone();b.from=b.position.clone();b.state=b.position.y>.2||b.position.distanceTo(b.target)>2?'arriving':'feeding';b.residentArrival=true;b.age=0;site=food;}
    }
-   if(b.state!=='departing'&&b.state!=='sated'&&(!site||!isClear(b.target,site)||(b.habitat==='bath'&&site.position.distanceTo(b.sitePosition)>.02)))this.depart(b,pointer);
+   if(['foraging','perching','sated'].includes(b.state)&&!b.carriedStick){
+    const stick=sites.filter(s=>s.kind==='stick'&&s.position.distanceTo(b.position)<8&&this.time-(this.quiet.get(s.id)??0)>3).sort((a,c)=>a.position.distanceToSquared(b.position)-c.position.distanceToSquared(b.position)).find(s=>isClear(stickLanding(s),s)&&s.collection.claim(s,b.id));
+    if(stick){b.stickCollection=stick.collection;b.pileId=stick.id;b.habitat='stick';b.target=stickLanding(stick);b.sitePosition=stick.position.clone();b.from=b.position.clone();b.state='arriving';b.residentArrival=true;b.age=0;b.yaw=Math.atan2(-(b.target.z-b.from.z),b.target.x-b.from.x);site=stick;}
+   }
+   if(b.state!=='departing'&&b.state!=='sated'&&(!site||!isClear(b.target,site)||(['bath','stick'].includes(b.habitat)&&site.position.distanceTo(b.sitePosition)>.02)))this.depart(b,pointer);
    if(b.state==='arriving'){
     const t=Math.min(1,b.age/2.8);b.position.lerpVectors(b.from,b.target,smooth(t));b.position.y+=Math.sin(Math.PI*t)*.35;
     b.opacity=b.residentArrival?1:smooth(t/.8);b.peck=0;
-    if(t===1){b.state=b.habitat==='bath'?'perching':b.habitat==='seed'?'feeding':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;}
+    if(t===1){b.state=b.habitat==='bath'?'perching':b.habitat==='seed'?'feeding':b.habitat==='stick'?'collecting':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;}
+   }else if(b.state==='collecting'){
+    b.opacity=1;b.yaw=0;b.peck=Math.sin(Math.min(1,b.age/.6)*Math.PI);
+    if(b.age>=.6){b.carriedStick=site.collection.take(site,b.id);b.peck=0;this.depart(b,null);}
    }else if(b.state==='feeding'){
     b.opacity=1;const before=b.fullness;feedBird(b,site,dt,isClear);b.foodWait=b.fullness>before?0:(b.foodWait??0)+dt;if(b.foodWait>12)this.depart(b,null);
     if(b.fullness>=b.capacity){b.state='sated';b.age=0;b.seedField.release(b.id);}
@@ -81,20 +89,21 @@ export class BirdColony {
   if(this.time>=this.nextArrival&&this.birds.length<this.limit){
    const residents=site=>this.birds.filter(b=>b.pileId===site.id&&b.state!=='departing');
    const candidates=sites.filter(p=>p.joins!==15&&available(p)&&this.time-(this.quiet.get(p.id)??0)>(p.kind==='seed'?1.5:6)&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<3));
-   const preference=p=>residents(p).filter(settled).length+(p.kind==='seed'?10:p.kind==='bath'?2:0);
+   const preference=p=>residents(p).filter(settled).length+(p.kind==='seed'?10:p.kind==='stick'?6:p.kind==='bath'?2:0);
    candidates.sort((a,b)=>preference(b)-preference(a));
    // Try other habitats when the preferred site is crowded or obstructed.
    let spawned=false;
    for(const site of candidates){let target=null,angle=0;
     for(let i=0;i<16;i++){
      const a=this.random()*Math.PI*2,r=site.kind==='bath'?site.rimRadius:.15+this.random()*.65;
-     const food=site.kind==='seed'?site.field.available(site.id).filter(s=>s.owner===null)[i]:null;const p=food?food.position.clone().setY(.08):this.bathPoint(site,a,r,site.kind==='bath'?site.rimY+.082:.08);
+     const food=site.kind==='seed'?site.field.available(site.id).filter(s=>s.owner===null)[i]:null;const p=site.kind==='stick'?stickLanding(site):food?food.position.clone().setY(.08):this.bathPoint(site,a,r,site.kind==='bath'?site.rimY+.082:.08);
      if(site.kind==='seed'&&!food)continue;
      if(isClear(p,site)&&this.birds.every(b=>b.state==='departing'||b.target.distanceTo(p)>.5)){target=p;angle=a;break;}
     }
-    if(!target)continue;
+    if(!target||site.kind==='stick'&&!site.collection.claim(site,this.sequence+1))continue;
     const from=target.clone().add(new THREE.Vector3(-2.5-this.random(),3.5+this.random(),-1));
     this.birds.push({id:++this.sequence,pileId:site.id,habitat:site.kind??'leaves',sitePosition:site.position.clone(),angle,state:'arriving',age:0,visitAge:0,position:from.clone(),from,target,opacity:0,fullness:0,capacity:6+Math.floor(this.random()*10),fatness:0,wing:0,wingSpread:1,wingFlap:1.12,wingPhase:0,wingState:'flapping',peck:0,yaw:Math.atan2(-(target.z-from.z),target.x-from.x)});
+    if(site.kind==='stick')this.birds.at(-1).stickCollection=site.collection;
     if(site.kind==='seed'){const bird=this.birds.at(-1),seed=site.field.claim(target,bird.id,site.id,p=>isClear(p.clone().setY(.08),site));bird.seedId=seed?.id;bird.seedField=site.field;}
     this.nextArrival=this.time+(site.kind==='seed'?3+this.random()*3:8+this.random()*5);spawned=true;break;
    }

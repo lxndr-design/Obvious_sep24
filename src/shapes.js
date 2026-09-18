@@ -1,10 +1,12 @@
 import * as THREE from 'three';
+import {makeStick} from './sticks.js';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
 import {makeHedge} from './hedges.js';
 import {stackingProfile} from './stacking.js';
 import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
-export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',...FURNISHING_LABELS};
+export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',...FURNISHING_LABELS};
 export function makeForm(type,R){
+ if(type==='stick'){const form=makeStick(R);return {...form,stacking:stackingProfile(type,form)};}
  if(type==='hedge')return makeHedge(R);
  if(Object.hasOwn(FURNISHING_LABELS,type)){const form=makeFurnishing(type,R);return {...form,stacking:stackingProfile(type,form)};}
  let geometry,parts=[],height;

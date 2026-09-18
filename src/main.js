@@ -46,6 +46,8 @@ const baths=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.need
 const joining=o=>o?.type==='hedge'?hedges:o?.type==='birdbath'?baths:null;
 function refreshJoins(){return hedges.refresh()&&baths.refresh();}
 const ecology=new Ecology(scene,pendulums,physics,wind,RAPIER);ecology.terrain=terrain;pendulums.beforeStep=dt=>ecology.beforeStep(dt);
+ecology.sticks.canTake=o=>state.drag?.object!==o&&!state.objects.some(child=>child.support===o);
+ecology.sticks.onTake=o=>{const selected=state.selected;remove(o);if(selected&&selected!==o)select(selected);return !state.objects.includes(o);};
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
