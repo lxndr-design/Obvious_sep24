@@ -44,3 +44,19 @@ test('hanging focus masks only hanging geometry and keeps ground forms as depth 
  focus.resize(800,600);assert.ok(focus.render(renderer,new THREE.Camera(),c.objects));assert.equal(focus.proxies.get(a).material,focus.white);assert.equal(focus.proxies.get(b).material,focus.black);assert.equal(current,null);assert.equal(renders,1);
  a.hanging=false;assert.equal(focus.render(renderer,new THREE.Camera(),c.objects),false);assert.equal(renders,1);focus.target.dispose();focus.white.dispose();focus.black.dispose();
 });
+
+test('rotation easing follows a rigid stack arc, settles quickly, and restores collision poses',()=>{
+ const {s,add}=setup(),table=add('table-square-full',-8,0),pot=add('plant-snake-small',-7.5,0);
+ pot.support=table;pot.mesh.position.y=table.mesh.position.y+table.stacking.headY-pot.stacking.bottomY;
+ const v=new DragPresentation(),members=s.members(table),start=v.capture(members),pivot=table.mesh.position.clone(),distance=pot.mesh.position.distanceTo(table.mesh.position);
+ assert.ok(s.rotate(table));const final=s.snapshot(table);v.animate(start,false,pivot);
+ let restore=v.apply();assert.ok(table.mesh.quaternion.angleTo(start[0].rotation)<1e-7);restore();
+ v.step(.05);restore=v.apply();assert.ok(table.mesh.quaternion.angleTo(final[0].rotation)>.05);assert.ok(Math.abs(pot.mesh.position.distanceTo(table.mesh.position)-distance)<1e-6);restore();
+ for(let i=0;i<12;i++)v.step(1/60);
+ restore=v.apply();assert.ok(table.mesh.quaternion.angleTo(final[0].rotation)<.01,'turn should be essentially complete in 250ms');restore();
+ assert.deepEqual(s.snapshot(table).map(x=>[x.position.toArray(),x.rotation.toArray()]),final.map(x=>[x.position.toArray(),x.rotation.toArray()]));
+});
+test('repeated rotations retarget from the displayed pose without a jump',()=>{
+ const {s,add}=setup(),o=add('arch',-8,0),v=new DragPresentation();let snapshot=v.capture([o]);assert.ok(s.rotate(o));v.animate(snapshot,false,o.mesh.position);v.step(.04);
+ const shown=v.capture([o]);assert.ok(s.rotate(o));v.animate(shown,false,o.mesh.position);const restore=v.apply();assert.ok(o.mesh.quaternion.angleTo(shown[0].rotation)<1e-7);restore();
+});

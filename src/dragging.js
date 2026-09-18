@@ -26,17 +26,22 @@ export function dragAnchor(pendulums,collision,object,target){
 // across obstacles fade in at the destination instead of sliding through solids.
 export class DragPresentation {
  constructor(){this.motion=new Map();this.faders=new WeakMap();}
- capture(objects){return objects.map(object=>({object,position:object.mesh.position.clone().add(this.motion.get(object)?.offset??new THREE.Vector3())}));}
- animate(snapshot,relocated=false){for(const {object,position} of snapshot)this.motion.set(object,{offset:relocated?new THREE.Vector3():position.sub(object.mesh.position),fade:relocated?.2:1});}
+ capture(objects){const restore=this.apply();try{return objects.map(object=>({object,position:object.mesh.position.clone(),rotation:object.mesh.quaternion.clone()}));}finally{restore();}}
+ animate(snapshot,relocated=false,pivot=null){for(const {object,position,rotation} of snapshot){
+  const turn=relocated?new THREE.Quaternion():rotation.clone().multiply(object.mesh.quaternion.clone().invert());
+  const center=pivot?.clone()??object.mesh.position.clone();
+  const rotated=object.mesh.position.clone().sub(center).applyQuaternion(turn).add(center);
+  this.motion.set(object,{offset:relocated?new THREE.Vector3():position.clone().sub(rotated),turn,pivot:center,fade:relocated?.2:1});
+ }}
  clear(object){this.motion.delete(object);}
- step(dt){const decay=Math.exp(-22*dt);for(const [o,m]of this.motion){m.offset.multiplyScalar(decay);m.fade=1-(1-m.fade)*decay;if(m.offset.lengthSq()<1e-8&&m.fade>.999)this.motion.delete(o);}}
+ step(dt){const decay=Math.exp(-22*dt);for(const [o,m]of this.motion){m.offset.multiplyScalar(decay);m.turn.slerp(new THREE.Quaternion(),1-decay);m.fade=1-(1-m.fade)*decay;if(m.offset.lengthSq()<1e-8&&m.turn.angleTo(new THREE.Quaternion())<.001&&m.fade>.999)this.motion.delete(o);}}
  apply(){const restore=[];for(const [o,m]of this.motion){
-  const position=o.mesh.position.clone(),anchor=o.anchor?.clone(),materials=[];o.mesh.position.add(m.offset);if(o.hanging&&o.anchor)o.anchor.add(m.offset);
+  const position=o.mesh.position.clone(),rotation=o.mesh.quaternion.clone(),anchor=o.anchor?.clone(),materials=[];o.mesh.position.sub(m.pivot).applyQuaternion(m.turn).add(m.pivot).add(m.offset);o.mesh.quaternion.premultiply(m.turn);if(o.hanging&&o.anchor)o.anchor.add(m.offset);
   if(m.fade<.999)o.mesh.traverse(child=>{if(!child.isMesh||!child.material)return;const original=child.material;
    const fade=material=>{let clone=this.faders.get(material);if(!clone){clone=material.clone();clone.transparent=true;clone.depthWrite=false;this.faders.set(material,clone);material.addEventListener('dispose',()=>clone.dispose());}clone.opacity=material.opacity*m.fade;return clone;};
    child.material=Array.isArray(original)?original.map(fade):fade(original);materials.push({child,original});
   });
-  o.mesh.updateMatrixWorld(true);restore.push(()=>{o.mesh.position.copy(position);if(anchor)o.anchor.copy(anchor);for(const s of materials)s.child.material=s.original;o.mesh.updateMatrixWorld(true);});
+  o.mesh.updateMatrixWorld(true);restore.push(()=>{o.mesh.position.copy(position);o.mesh.quaternion.copy(rotation);if(anchor)o.anchor.copy(anchor);for(const s of materials)s.child.material=s.original;o.mesh.updateMatrixWorld(true);});
  }return ()=>{for(const fn of restore)fn();};}
 }
 
@@ -46,4 +51,13 @@ export class DragGhost {
  show(delta){this.group.visible=true;for(let i=0;i<this.members.length;i++){const o=this.members[i],mesh=this.group.children[i];mesh.position.copy(o.mesh.position).add(delta);mesh.quaternion.copy(o.mesh.quaternion);}}
  hide(){this.group.visible=false;}
  end(){this.hide();this.group.clear();this.members=[];}
+}
+
+// Probe destinations without adding a body or mutating the existing scene.
+export function placementAt(stacks,object,x,z){
+ for(const choice of stacks.supports(object,x,z)){
+  const position=new THREE.Vector3(x,choice.y,z);
+  if(stacks.collision.canPlace(object,position))return {position,support:choice.host};
+ }
+ return null;
 }

@@ -25,3 +25,5 @@ input[type=range]::-moz-range-track{height:3px;background:var(--track);border:0}
 
 @media(min-width:761px){.toolbar{left:calc(50% - 150px);max-width:calc(100vw - 330px)}}
 @media(min-width:761px) and (max-width:1100px){.toolbar{left:calc(50% - 135px);max-width:calc(100vw - 290px)}}
+
+.toolbar button[data-add],.toolbar #add-plant,.toolbar #add-table{touch-action:pan-x;user-select:none;-webkit-user-select:none;cursor:grab}.toolbar button.dragging{cursor:grabbing;background:var(--hover)}
