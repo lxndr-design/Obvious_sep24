@@ -6,7 +6,7 @@ export class BirdseedField {
   if(!patch){patch={id:`food-${++this.patchSequence}`,position:point.clone()};this.patches.push(patch);}
   const room=this.capacity-this.remaining;
   for(let i=0;i<Math.min(count,room);i++){
-   const angle=this.random()*Math.PI*2,r=Math.sqrt(this.random())*.45,p=point.clone().add(new THREE.Vector3(Math.cos(angle)*r,0,Math.sin(angle)*r));p.y=.016;
+   const angle=this.random()*Math.PI*2,r=Math.sqrt(this.random())*.45,p=point.clone().add(new THREE.Vector3(Math.cos(angle)*r,0,Math.sin(angle)*r));p.y=.052;
    if(!valid(p))continue;const id=++this.sequence;this.seeds.set(id,{id,patch:patch.id,position:p,owner:null,eatenBy:null});added++;
   }
   if(added)this.version++;return added;
@@ -21,8 +21,8 @@ export class BirdseedField {
  read(){return {scattered:this.sequence,remaining:this.remaining,eaten:this.eaten,seeds:[...this.seeds.values()].map(s=>({id:s.id,position:s.position.toArray(),eatenBy:s.eatenBy}))};}
 }
 export class BirdseedView {
- constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.025,0),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
- update(){if(this.version===this.field.version)return;this.version=this.field.version;const seeds=this.field.available();this.mesh.count=seeds.length;seeds.forEach((s,i)=>{this.transform.position.copy(s.position);this.transform.scale.set(.6,.45,1);this.transform.rotation.y=s.id*2.4;this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);});this.mesh.instanceMatrix.needsUpdate=true;}
+ constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.08,0),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,flatShading:true}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
+ update(){if(this.version===this.field.version)return;this.version=this.field.version;const seeds=this.field.available();this.mesh.count=seeds.length;seeds.forEach((s,i)=>{this.transform.position.copy(s.position);this.transform.scale.set(.75,.65,1);this.transform.rotation.y=s.id*2.4;this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);});this.mesh.instanceMatrix.needsUpdate=true;}
 }
 export function feedBird(bird,site,dt,clear=()=>true){
  const field=site.field;bird.seedField=field;
