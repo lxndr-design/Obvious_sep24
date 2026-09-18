@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import {refractiveWaterMaterial} from './water-refraction.js';
 import {PoolWater,PoolSpray} from './pool-water.js';
 import {contains} from './terrain.js';
 
 export class HoleTerrain {
- constructor(scene,groundMaterial){this.group=new THREE.Group();scene.add(this.group);this.groundMaterial=groundMaterial;this.waterMaterial=new THREE.MeshPhongMaterial({color:0x8c8c8c,specular:0xffffff,shininess:130,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});this.views=[];}
+ constructor(scene,groundMaterial){this.group=new THREE.Group();scene.add(this.group);this.groundMaterial=groundMaterial;this.waterMaterial=new THREE.MeshPhongMaterial({color:0x8c8c8c,specular:0xffffff,shininess:130,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});this.surfaceMaterial=refractiveWaterMaterial(this.waterMaterial);this.views=[];}
  rebuild(layout){
   const old=this.views;this.views=[];
   for(const child of [...this.group.children]){child.geometry?.dispose();this.group.remove(child);}
@@ -25,7 +26,7 @@ export class HoleTerrain {
     for(let j=0;j<nz;j++)for(let i=0;i<nx;i++){const a=base+j*(nx+1)+i;indices.push(a,a+nx+1,a+1,a+1,a+nx+1,a+nx+2);}
    }
    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(new Float32Array(positions.length),3));geometry.setIndex(indices);geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),Math.hypot(width/2,width/2,3));
-   view.mesh=new THREE.Mesh(geometry,this.waterMaterial);view.mesh.position.set(x,-.19,z);view.mesh.receiveShadow=true;view.mesh.frustumCulled=false;view.mesh.userData.waterView=view;this.group.add(view.mesh);
+   view.mesh=new THREE.Mesh(geometry,this.surfaceMaterial);view.mesh.position.set(x,-.19,z);view.mesh.receiveShadow=true;view.mesh.frustumCulled=false;view.mesh.userData.waterView=view;this.group.add(view.mesh);
    view.spray=new PoolSpray(field,this.waterMaterial);view.spray.mesh.position.copy(view.mesh.position);this.group.add(view.spray.mesh);this.views.push(view);this.updateMesh(view);
   }
   for(const v of old)v.spray.mesh.dispose();
