@@ -26,7 +26,7 @@ export class BathWater {
   this.material=new THREE.MeshPhongMaterial({color:0x626262,specular:0xbcbcbc,shininess:45,transparent:true,opacity:.72,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   this.mesh=new THREE.Mesh(this.geometry,this.material);this.mesh.receiveShadow=true;this.group.add(this.mesh);
   this.spray=new THREE.InstancedMesh(new THREE.SphereGeometry(.014,6,4),this.material,48);this.spray.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.spray.frustumCulled=false;this.group.add(this.spray);
-  this.drops=[];this.cursor=0;this.transform=new THREE.Object3D();this.splashCount=0;this.update(0,new THREE.Vector3());
+  this.drops=[];this.cursor=0;this.transform=new THREE.Object3D();this.splashCount=0;this.fountainTime=0;this.update(0,new THREE.Vector3());
  }
  uv(worldPosition){this.object.mesh.updateWorldMatrix(true,false);const p=this.object.mesh.worldToLocal(worldPosition.clone());return {u:p.x/this.field.width+.5,v:p.z/this.field.width+.5};}
  stroke(from,to,seconds){this.field.stroke(from,to,seconds,.3);}
@@ -39,15 +39,23 @@ export class BathWater {
   }
  }
  update(dt,wind){
+  if(this.object.type==='fountain'&&dt>0){
+   this.fountainTime+=dt;
+   while(this.fountainTime>=1/35){
+    this.fountainTime-=1/35;const angle=this.splashCount++*2.39996;
+    this.drops[this.cursor]={position:new THREE.Vector3(0,.20,0),velocity:new THREE.Vector3(Math.cos(angle)*.30,2.35,Math.sin(angle)*.30),age:0};this.cursor=(this.cursor+1)%48;
+    this.field.disturb(.5+Math.cos(angle)*.12,.5+Math.sin(angle)*.12,-.05,.055);
+   }
+  }
   this.field.windVector=wind.clone().multiplyScalar(.04);this.field.step(dt);
   const a=this.geometry.attributes.position;for(let i=0;i<a.count;i++)a.setY(i,this.field.height[i]);a.needsUpdate=true;this.geometry.computeVertexNormals();
   for(let i=0;i<48;i++){
    const drop=this.drops[i];let visible=false;
-   if(drop){drop.age+=dt;drop.velocity.y-=9.81*dt;drop.position.addScaledVector(drop.velocity,dt);visible=drop.age<.5&&drop.position.y>0;if(!visible)this.drops[i]=null;}
+   if(drop){drop.age+=dt;drop.velocity.y-=9.81*dt;drop.position.addScaledVector(drop.velocity,dt);visible=drop.age<(this.object.type==='fountain'?.8:.5)&&drop.position.y>0;if(!visible)this.drops[i]=null;}
    this.transform.position.copy(visible?drop.position:new THREE.Vector3());this.transform.scale.setScalar(visible?1:0);this.transform.updateMatrix();this.spray.setMatrixAt(i,this.transform.matrix);
   }
   this.spray.instanceMatrix.needsUpdate=true;
  }
- reset(){this.field.reset();this.drops=[];this.splashCount=0;this.update(0,new THREE.Vector3());}
+ reset(){this.field.reset();this.drops=[];this.splashCount=0;this.fountainTime=0;this.update(0,new THREE.Vector3());}
  dispose(){this.group.removeFromParent();this.geometry.dispose();this.spray.geometry.dispose();this.material.dispose();this.spray.dispose();}
 }

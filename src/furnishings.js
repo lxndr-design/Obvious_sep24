@@ -5,7 +5,7 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 export const PLANTS={snake:'Snake plant',rubber:'Rubber plant',succulent:'Succulent'};
 export const PLANT_SIZES={small:.65,medium:1,large:1.5};
 export const TABLE_SIZES={half:.5,full:1};
-export const FURNISHING_LABELS={bench:'Park bench',birdbath:'Bird bath'};
+export const FURNISHING_LABELS={bench:'Park bench',birdbath:'Bird bath',fountain:'Fountain'};
 export const BATH={height:1.53,waterY:1.43,waterRadius:.57,rimRadius:.69};
 for(const [plant,label] of Object.entries(PLANTS))for(const size of Object.keys(PLANT_SIZES))FURNISHING_LABELS[`plant-${plant}-${size}`]=`${label} · ${size}`;
 for(const shape of ['round','square'])for(const size of Object.keys(TABLE_SIZES))FURNISHING_LABELS[`table-${shape}-${size}`]=`${shape==='round'?'Round':'Square'} table · ${size==='half'?'½':'1/1'}`;
@@ -46,10 +46,11 @@ export function makeFurnishing(type,R){
   }
   for(let i=0;i<3;i++)box(2.35,.14,.085,0,.99+i*.19,-.32);
   box(1.84,.11,.11,0,.27,0);
- }else if(family==='birdbath'){
+ }else if(family==='birdbath'||family==='fountain'){
   add(new THREE.CylinderGeometry(.35,.46,.14,40),v(0,.07,0));
   add(new THREE.CylinderGeometry(.18,.23,1.14,32),v(0,.71,0));
   add(new THREE.CylinderGeometry(.66,.40,.16,48),v(0,1.24,0));
+  if(family==='fountain')add(new THREE.CylinderGeometry(.055,.10,.30,12),v(0,1.47,0));
   // Hollow bowl: each wall wedge is convex, with no hull spanning the basin.
   for(let i=0;i<48;i++){
    const points=[];

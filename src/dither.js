@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 export const DitherShader={
- uniforms:{tDiffuse:{value:null},hangingMask:{value:null},hangingBlur:{value:0},resolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
+ uniforms:{tDiffuse:{value:null},hangingMask:{value:null},hangingBlur:{value:0},resolution:{value:new THREE.Vector2()},bufferResolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
  vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
  fragmentShader:`
  uniform sampler2D tDiffuse;
  uniform sampler2D hangingMask;
  uniform float hangingBlur;
- // CSS viewport size: a 5 px cell stays 5 screen pixels on high-DPI displays.
+ // CSS size controls the requested scale, rounded to the nearest physical pixel.
  uniform vec2 resolution;
+ uniform vec2 bufferResolution;
  uniform float scale;
  uniform float ink;
  // Palette colors are already sRGB, matching this final pass output.
@@ -17,13 +18,16 @@ export const DitherShader={
  float bayer2(vec2 p){p=mod(floor(p),2.);return mod(2.*p.x+3.*p.y,4.);}
  float bayer8(vec2 p){return (16.*bayer2(p)+4.*bayer2(floor(p/2.))+bayer2(floor(p/4.))+.5)/64.;}
  void main(){
-  vec2 sampleUV=vUv;
+  // Raster coordinates avoid interpolation rounding at cell boundaries.
+  vec2 sampleUV=gl_FragCoord.xy/bufferResolution;
   vec2 pixel=vec2(0.);
   if(scale>0.){
-   pixel=floor(vUv*resolution/scale);
+   // Whole physical pixels prevent alternating cell widths at fractional DPR.
+   vec2 cellSize=max(vec2(1.),floor(scale*bufferResolution/resolution+.5));
+   pixel=floor(gl_FragCoord.xy/cellSize);
    // Sample once per cell so silhouettes, shadows and shading share the grid.
    // Clamp the center of partial cells along the viewport's top/right edges.
-   sampleUV=min((pixel+.5)*scale,resolution-.5)/resolution;
+   sampleUV=min((pixel+.5)*cellSize,bufferResolution-.5)/bufferResolution;
   }
   vec3 c=texture2D(tDiffuse,sampleUV).rgb;
   if(hangingBlur>0.){

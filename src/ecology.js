@@ -75,7 +75,7 @@ export class Ecology {
   }
  }
  syncBaths(){
-  const objects=this.collision.objects.filter(o=>o.type==='birdbath');
+  const objects=this.collision.objects.filter(o=>(o.type==='birdbath'||o.type==='fountain'));
   for(const [o,view]of this.bathViews)if(!objects.includes(o)){view.dispose();this.bathViews.delete(o);}
   const baths=[];
   for(const o of objects){

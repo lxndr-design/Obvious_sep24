@@ -22,3 +22,6 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;b
 input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--accent)}
 input[type=range]::-moz-range-track{height:3px;background:var(--track);border:0}
 .picker-add:hover{background:var(--accent);filter:brightness(.9)}
+
+@media(min-width:761px){.toolbar{left:calc(50% - 150px);max-width:calc(100vw - 330px)}}
+@media(min-width:761px) and (max-width:1100px){.toolbar{left:calc(50% - 135px);max-width:calc(100vw - 290px)}}

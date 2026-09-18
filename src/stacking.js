@@ -23,7 +23,8 @@ export function stackingProfile(type,form){
   for(const x of [-spread,spread])for(const z of [-spread,spread])footprints.push(rect(x,z,.13*scale,.13*scale));
   heads.push(round?circle(scale):rect(0,0,2*scale,2*scale));
  }else if(type.startsWith('plant-')){const scale=type.endsWith('-small')?.65:type.endsWith('-large')?1.5:1;footprints.push(circle(.23*scale));}
- else if(type==='birdbath')footprints.push(circle(.46));
+ else if(type==='hedge')footprints.push(rect(0,0,w,d));
+ else if(type==='birdbath'||type==='fountain')footprints.push(circle(.46));
  else if(type==='arch')for(const x of [-.84,.84])footprints.push(rect(x,0,.52,.7));
  else if(type==='bench'){
   for(const x of [-.92,.92])for(const z of [-.24,.24])footprints.push(rect(x,z,.12,.12));
