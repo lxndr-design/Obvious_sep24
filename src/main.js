@@ -164,10 +164,18 @@ function pickScene(){
  if(waterHit&&state.holes.some(o=>o.properties.locked&&Math.abs(waterHit.point.x-o.mesh.position.x)<=o.size/2&&Math.abs(waterHit.point.z-o.mesh.position.z)<=o.size/2))return {locked:true};
  return waterHit?{water:true,hit:waterHit.point,view:waterHit.view,hoverObject:state.holes.find(o=>Math.abs(waterHit.point.x-o.mesh.position.x)<=o.size/2&&Math.abs(waterHit.point.z-o.mesh.position.z)<=o.size/2)}:null;
 }
+// Pick the visible surface, then release above its highest point so grains never spawn inside a solid.
+function seedDropPoint(spread=0){
+ const hits=raycaster.intersectObjects([...state.objects.map(o=>o.mesh),...terrain.group.children.filter(o=>o.isMesh)],false),hit=hits[0];
+ const p=hit?hit.point.clone():raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());if(!p)return null;
+ if(hit?.object.userData.object){const o=hit.object.userData.object;p.y=Math.max(p.y,new THREE.Box3().setFromObject(o.mesh).max.y);}
+ if(spread){const a=Math.random()*Math.PI*2,r=Math.sqrt(Math.random())*spread;p.x+=Math.cos(a)*r;p.z+=Math.sin(a)*r;}
+ return p;
+}
 canvas.addEventListener('pointerdown',event=>{
  if(event.button!==0||activePointers.size>1)return;canvas.focus({preventScroll:true});ray(event);trackPointer(event);const picked=pick();
  messages.clear();
- if(state.mouseMode==='seed'){const p=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());if(p)ecology.scatterFood(p);state.drag={mode:'feed',id:event.pointerId,last:performance.now(),lastPoint:p?.clone()};canvas.setPointerCapture(event.pointerId);controls.enabled=false;return;}
+ if(state.mouseMode==='seed'){const p=seedDropPoint();if(p)ecology.scatterFood(p);state.drag={mode:'feed',id:event.pointerId,last:performance.now(),lastPoint:p?.clone()};canvas.setPointerCapture(event.pointerId);controls.enabled=false;return;}
  if(picked?.locked)return;
  if(picked?.seed){
   select(null);const seed=picked.seed;plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0,1,0),seed.mesh.position);if(!raycaster.ray.intersectPlane(plane,point))return;
@@ -188,7 +196,7 @@ canvas.addEventListener('pointerdown',event=>{
 canvas.addEventListener('pointermove',event=>{
  ray(event);trackPointer(event);if(!state.drag){const hit=pick();messages.target(state.mouseMode==='drag'?(hit?.object??hit?.view?.object??hit?.hoverObject):null);canvas.style.cursor=state.mouseMode==='seed'?'crosshair':hit?.locked?'default':hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
  if(state.drag.id!==event.pointerId)return;
- if(state.drag.mode==='feed'){const p=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());if(p&&performance.now()-state.drag.last>100&&(!state.drag.lastPoint||p.distanceTo(state.drag.lastPoint)>.15)){ecology.scatterFood(p);state.drag.last=performance.now();state.drag.lastPoint=p.clone();}return;}
+ if(state.drag.mode==='feed'){const p=seedDropPoint(),now=performance.now();if(p&&now-state.drag.last>180&&(!state.drag.lastPoint||p.distanceTo(state.drag.lastPoint)>.035)){ecology.scatterFood(seedDropPoint(.25));state.drag.last=now;state.drag.lastPoint=p.clone();}return;}
  if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&(state.drag.view===p.view||state.drag.view?.field===p.view.field)){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
  if(!raycaster.ray.intersectPlane(plane,point))return;
  const {object:o,mode}=state.drag,target=point.clone().add(state.drag.offset);
@@ -350,7 +358,7 @@ function tick(now){
  requestAnimationFrame(tick);const dt=Math.min((now-previous)/1000,.05);previous=now;if(document.hidden)return;
  controls.update();followSun();
  for(const o of pendulums.step(dt))updateCable(o);
- ecology.update(dt,camera,canvas.clientWidth,canvas.clientHeight);windTrails.update(dt,wind,controls.target);$('seed-count').textContent=`${ecology.food.remaining} seeds · ${ecology.food.eaten} eaten`;
+ ecology.update(dt,camera,canvas.clientWidth,canvas.clientHeight);windTrails.update(dt,wind,controls.target);$('seed-count').textContent=`${ecology.food.remaining} seed${ecology.food.remaining===1?'':'s'} · ${ecology.food.eaten} eaten`;
  for(const o of state.objects)if(o.hanging)o.cable.handle.quaternion.copy(camera.quaternion);
  if(!state.paused)terrain.step(dt,wind);
  // Meadow shadows update at 30 Hz; water shading and physical motion remain smooth.

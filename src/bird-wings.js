@@ -16,7 +16,7 @@ export function animateBirdWings(bird,dt){
  let state='closed',amplitude=0,rate=34;
  if(bird.state==='arriving'){
   // Briefly glide with spread wings before folding on touchdown.
-  state=bird.age<2.45?'flapping':'open';amplitude=state==='flapping'?1.12:0;
+  state=bird.age<(bird.arrivalDuration??2.8)-.35?'flapping':'open';amplitude=state==='flapping'?1.12:0;
  }else if(bird.state==='departing'){state='flapping';amplitude=1.2;rate=38;}
  else if(bird.state==='hopping')state='open';
  else if(bird.state==='bathing'&&(bird.age%1.6)/1.6<.65){state='flapping';amplitude=1.25;rate=42;}

@@ -24,7 +24,7 @@ export class Ecology {
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
   this.colony.onSplash=(position,site)=>this.bathViews.get(site.object)?.splash(position);
   this.sticks=new StickCollection(()=>this.collision.objects);
-  this.food=new BirdseedField(seededRandom(1931));this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
+  this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
  }
  createPlants(){
   const patches=[[-6,3],[-5,-1.5],[-3.5,4.8],[.1,2.1],[2,5],[5.9,1.8],[6.5,-2.5],[-1.8,-4.5],[-6,-4.8],[1,-5.1],[5.9,-4.8],[-.2,-2.8],[-2,1.4],[7.5,4.5],[-8,-1],[8,-5],[-4,7],[4.4,6.7]];
@@ -66,7 +66,7 @@ export class Ecology {
    const {geometry,parts}=seedForm(this.R),mesh=new THREE.Mesh(geometry,this.material);mesh.position.set(x,.12,z);this.addLoose(mesh,parts,'seed');
   }
  }
- scatterFood(point){const added=this.food.scatter(point,p=>!this.collision.layout.contains(p.x,p.z)&&this.clearSpot(p.clone().setY(.08)));if(added){this.colony.nextArrival=Math.min(this.colony.nextArrival,this.colony.time+1.5);this.foodView.update();}return added;}
+ scatterFood(point){const added=this.food.drop(point);if(added){this.colony.nextArrival=Math.min(this.colony.nextArrival,this.colony.time+2);this.foodView.update();}return added;}
  setPointer(point,screen){this.pointer=point?.clone()??null;this.pointerScreen=screen??null;}
  beforeStep(dt){
   this.wind.step(dt);
@@ -106,12 +106,12 @@ export class Ecology {
   this.habitats=[...this.sticks.sites(),...this.food.sites(),...this.piles,...baths];
  }
  clearSpot(position,site){
-  if(site?.kind!=='bath'&&this.collision.layout.contains(position.x,position.z))return false;const shape=new this.R.Ball(.11),p={x:position.x,y:position.y+.04,z:position.z};
+  if(site?.kind!=='bath'&&position.y<.12&&this.collision.layout.contains(position.x,position.z))return false;const shape=new this.R.Ball(.11),p={x:position.x,y:position.y+.04,z:position.z};
   for(const o of this.collision.objects){if(o===site?.object)continue;if(!o.geometry.boundingSphere)o.geometry.computeBoundingSphere();if(o.mesh.position.distanceTo(new THREE.Vector3(p.x,p.y,p.z))>o.geometry.boundingSphere.radius+.18)continue;for(const part of o.parts){const center=this.collision.position(part,o.mesh.position,o.mesh.quaternion);const c=shape.contactShape(p,IDENTITY,part.shape,center,o.mesh.quaternion,0);if(c&&c.distance<0)return false;}}
   return true;
  }
  update(delta,camera,width,height){
-  this.clock+=delta;
+  this.clock+=delta;this.food.updatePhysics(delta);
   for(const o of this.loose){o.mesh.position.copy(o.body.translation());o.mesh.quaternion.copy(o.body.rotation());}
   // Each pile follows its physical leaves; scattered or submerged leaves no longer attract birds.
   for(const pile of this.piles){const leaves=this.loose.filter(o=>o.pileId===pile.id&&o.type==='leaf'&&!o.lastWet&&o.mesh.position.y<.35);let best=[];
@@ -149,5 +149,5 @@ export class Ecology {
   for(const o of this.loose){o.body.setTranslation(o.spawn,true);o.body.setRotation(o.spawnRotation,true);o.body.setLinvel({x:0,y:0,z:0},true);o.body.setAngvel({x:0,y:0,z:0},true);o.body.resetForces(true);o.body.resetTorques(true);o.mesh.position.copy(o.spawn);o.mesh.quaternion.copy(o.spawnRotation);o.lastWet=false;}
   for(const item of this.strands){item.strand.reset();this.updateBlade(item);}this.colony.reset();for(const view of this.birdViews.values()){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();}this.birdViews.clear();for(const view of this.bathViews.values())view.dispose();this.bathViews.clear();this.habitats=[];this.accumulator=0;this.pointer=null;this.pointerScreen=null;
  }
- read(){return {sticksCollected:[...this.sticks.taken],birdseed:this.food.read(),grassStrands:this.strands.length,grassClusters:this.grassClusters.map(c=>({position:c.root.toArray(),blades:c.blades.length})),leaves:this.loose.filter(o=>o.type==='leaf').length,seedPods:this.loose.filter(o=>o.type==='seed').map(o=>({id:o.id,position:o.mesh.position.toArray(),velocity:o.body.linvel()})),piles:this.piles.map(p=>({id:p.id,count:p.count,position:p.position.toArray()})),baths:[...this.bathViews].map(([o,view])=>({objectId:o.id,active:view.group.visible,splashes:view.splashCount})),birds:this.colony.birds.map(b=>({color:BIRD_PALETTES[(b.id-1)%BIRD_PALETTES.length].name,habitat:b.habitat,state:b.state,carryingStick:b.carriedStick?.userData.stickId??null,fullness:b.fullness,capacity:b.capacity,fatness:b.fatness,wingState:b.wingState,wingSpread:b.wingSpread,wingStroke:b.wing,position:b.position.toArray(),opacity:b.opacity,pile:b.pileId}))};}
+ read(){return {sticksCollected:[...this.sticks.taken],birdseed:this.food.read(),grassStrands:this.strands.length,grassClusters:this.grassClusters.map(c=>({position:c.root.toArray(),blades:c.blades.length})),leaves:this.loose.filter(o=>o.type==='leaf').length,seedPods:this.loose.filter(o=>o.type==='seed').map(o=>({id:o.id,position:o.mesh.position.toArray(),velocity:o.body.linvel()})),piles:this.piles.map(p=>({id:p.id,count:p.count,position:p.position.toArray()})),baths:[...this.bathViews].map(([o,view])=>({objectId:o.id,active:view.group.visible,splashes:view.splashCount})),birds:this.colony.birds.map(b=>({color:BIRD_PALETTES[(b.id-1)%BIRD_PALETTES.length].name,habitat:b.habitat,state:b.state,carryingStick:b.carriedStick?.userData.stickId??null,caution:b.caution,fullness:b.fullness,capacity:b.capacity,fatness:b.fatness,wingState:b.wingState,wingSpread:b.wingSpread,wingStroke:b.wing,position:b.position.toArray(),opacity:b.opacity,pile:b.pileId}))};}
 }

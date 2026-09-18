@@ -31,7 +31,7 @@ test('fullness broadens the belly while preserving head geometry and the low pol
 });
 test('birdseed mode suppresses both world and screen cursor fear; Move restores it',()=>{
  const p=new PendulumScene(R),e=new Ecology(new THREE.Scene(),p,new CollisionScene(R),new WindField(),R);e.feedingMode=true;for(let i=0;i<8;i++)e.scatterFood(new THREE.Vector3());e.setPointer(new THREE.Vector3(),{x:50,y:50});
- const camera=new THREE.OrthographicCamera(-5,5,5,-5,.1,100);camera.position.set(0,10,10);camera.lookAt(0,0,0);camera.updateMatrixWorld();advance(dt=>e.update(dt,camera,100,100),12);
+ const camera=new THREE.OrthographicCamera(-5,5,5,-5,.1,100);camera.position.set(0,10,10);camera.lookAt(0,0,0);camera.updateMatrixWorld();advance(dt=>{p.step(dt);e.update(dt,camera,100,100);},18);
  assert.ok(e.food.eaten>0);const birds=e.colony.birds.filter(b=>b.habitat==='seed'&&b.state!=='departing');assert.ok(birds.length>0);e.feedingMode=false;e.update(1/60,camera,100,100);assert.ok(birds.every(b=>b.state==='departing'));e.reset();assert.equal(e.food.remaining,0);p.dispose();
 });
 test('full birds linger without overeating, and finishing the last seed does not trigger immediate flight',()=>{
