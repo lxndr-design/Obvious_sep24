@@ -14,6 +14,7 @@ import {PendulumScene,CEILING_HEIGHT} from './pendulums.js';
 import {HoleLayout,TERRAIN_EXTENT} from './terrain.js';
 import {WindField} from './wind.js';
 import {Ecology} from './ecology.js';
+import {hitBathWater} from './birdbath.js';
 import {StackScene} from './stacking.js';
 import {SeedSlingshot,SlingGuide} from './slingshot.js';
 const $=id=>document.getElementById(id);
@@ -112,7 +113,12 @@ function remove(o){
 function reset(){cancelDrag();for(const o of [...state.objects,...state.holes])remove(o);state.sequence=0;addHole([POOL.x,POOL.z],POOL.width);addObject('box',[-3,2]);addObject('box',[-4.5,.5]);addObject('sphere',[-1,3.5]);addObject('cylinder',[-4,-3]);addObject('arch',[-1,-1]);addObject('pebble',[3.5,3.5]);addObject('sphere',[1,-2.5],true,4.65);addObject('box',[-3,-3],true,4.1);addObject('plant-rubber-medium',[-5.5,2.5]);addObject('table-round-half',[-3,4.5]);addObject('bench',[-4,-5]);addObject('birdbath',[6.5,0]);select(null);terrain.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
-function hitWater(){const hit=raycaster.intersectObjects(terrain.views.map(v=>v.mesh),false)[0];return hit?{point:hit.point,view:hit.object.userData.waterView,distance:hit.distance}:null;}
+function hitWater(bath=null,solids=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false)){
+ const basin=hitBathWater(raycaster,bath?[bath]:ecology.bathViews.values(),solids);if(bath)return basin;
+ const hit=raycaster.intersectObjects(terrain.views.map(v=>v.mesh),false)[0];
+ return basin&&(!hit||basin.distance<hit.distance)?basin:hit?{point:hit.point,view:hit.object.userData.waterView,distance:hit.distance}:null;
+}
+function waterUV(view,p){return view.uv?view.uv(p):terrain.uv(view,p);}
 function splash(p,amount=8){const view=terrain.at(p.x,p.z);if(!view)return;const uv=terrain.uv(view,p);view.field.splash(uv.u,uv.v,amount);notify(state.paused?'Ripple queued — resume to see it travel':'Drag through the water to leave a wake');}
 const groundRayPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
 function trackPointer(event){const groundPoint=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());const rect=canvas.getBoundingClientRect();ecology.setPointer(groundPoint,{x:event.clientX-rect.left,y:event.clientY-rect.top});}
@@ -123,7 +129,8 @@ for(const event of ['pointerup','pointercancel'])canvas.addEventListener(event,e
 function pick(){
  const handles=raycaster.intersectObjects(state.selected?.hanging?[state.selected.cable.hit]:[],false);
  if(handles.length)return {object:handles[0].object.userData.object,mode:'anchor',hit:handles[0].point};
- const hits=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false),waterHit=hitWater();
+ const hits=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false),waterHit=hitWater(null,hits);
+ if(waterHit?.view.object)return {water:true,hit:waterHit.point,view:waterHit.view};
  const seeds=ecology.loose.filter(o=>o.type==='seed').map(seed=>{const p=seed.mesh.position.clone().project(camera);return {seed,p,distance:raycaster.ray.origin.distanceTo(seed.mesh.position),pixels:Math.hypot((p.x-pointer.x)*canvas.clientWidth/2,(p.y-pointer.y)*canvas.clientHeight/2)};}).filter(s=>Math.abs(s.p.z)<1&&s.pixels<12&&(!hits.length||s.distance<hits[0].distance+.12)).sort((a,b)=>a.pixels-b.pixels);
  if(seeds.length)return {seed:seeds[0].seed,hit:seeds[0].seed.mesh.position.clone()};
  if(hits.length)return {object:hits[0].object.userData.object,mode:hits[0].object.userData.object.hanging?'pull':'floor',hit:hits[0].point};
@@ -145,13 +152,13 @@ canvas.addEventListener('pointerdown',event=>{
   if(mode==='anchor')pendulums.beginAnchor(o);if(mode==='pull')pendulums.beginPull(o);
   canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
   notify(mode==='pull'?'Pull freely · release to swing · Esc to cancel':mode==='anchor'?'Reposition the ceiling anchor · grid locked':'Grid locked · release to place · Esc to cancel');
- }else if(picked?.water){select(null);splash(picked.hit);state.drag={water:true,id:event.pointerId,last:performance.now(),previous:terrain.uv(picked.view,picked.hit),view:picked.view};canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
+ }else if(picked?.water){select(null);if(picked.view.object)picked.view.splash(picked.hit);else splash(picked.hit);state.drag={water:true,bath:picked.view.object?picked.view:null,id:event.pointerId,last:performance.now(),previous:waterUV(picked.view,picked.hit),view:picked.view};canvas.style.cursor='crosshair';canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
  else{select(null);notify('');}
 });
 canvas.addEventListener('pointermove',event=>{
  ray(event);trackPointer(event);if(!state.drag){const hit=pick();canvas.style.cursor=hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
  if(state.drag.id!==event.pointerId)return;
- if(state.drag.water){const p=hitWater(),now=performance.now();if(p){const uv=terrain.uv(p.view,p.point);if(state.drag.previous&&state.drag.view===p.view)p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
+ if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&state.drag.view===p.view){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
  if(!raycaster.ray.intersectPlane(plane,point))return;
  const {object:o,mode}=state.drag,target=point.clone().add(state.drag.offset);
  if(mode==='seed'){sling.aim(target);slingGuide.update(sling);return;}

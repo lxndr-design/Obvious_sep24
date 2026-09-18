@@ -5,7 +5,7 @@ import R from '@dimforge/rapier3d-compat';
 import {makeForm} from '../src/shapes.js';
 import {BATH} from '../src/furnishings.js';
 import {BirdColony,seededRandom} from '../src/birds.js';
-import {BathWater} from '../src/birdbath.js';
+import {BathWater,hitBathWater} from '../src/birdbath.js';
 import {Ecology} from '../src/ecology.js';
 import {WindField} from '../src/wind.js';
 import {PendulumScene} from '../src/pendulums.js';
@@ -65,4 +65,29 @@ test('ecology discovers placed baths, drives real splash geometry and retires mo
  bath.hanging=true;e.update(1/60,null,0,0);assert.equal(view.group.visible,false);assert.ok(e.habitats.every(h=>h.id!=='bath-42'));
  collision.objects=[];e.update(1/60,null,0,0);assert.equal(e.bathViews.size,0);assert.equal(bath.mesh.children.length,0);
  e.reset();p.dispose();
+});
+
+
+test('basin water receives pointer hits while the rim, pedestal, covering forms and hidden water do not',()=>{
+ const bath=form('birdbath'),view=new BathWater(bath);bath.mesh.updateMatrixWorld(true);
+ const ray=new THREE.Raycaster();
+ const aim=(from,to,objects=[bath.mesh])=>{ray.set(from,to.clone().sub(from).normalize());return hitBathWater(ray,[view],ray.intersectObjects(objects,false));};
+ const center=new THREE.Vector3(-8,BATH.waterY,2);
+ assert.equal(aim(new THREE.Vector3(-8,5,2),center)?.view,view,'water beats the basin floor beneath it');
+ assert.equal(aim(new THREE.Vector3(-7.3,5,2),new THREE.Vector3(-7.3,1.5,2)),null,'solid rim stays draggable');
+ assert.equal(aim(new THREE.Vector3(-8,.7,5),new THREE.Vector3(-8,.7,2)),null,'pedestal stays draggable');
+ assert.equal(aim(new THREE.Vector3(-8,1.6,5),center),null,'front rim occludes the water at a shallow angle');
+ const cover=new THREE.Mesh(new THREE.BoxGeometry(.4,.4,.4));cover.position.set(-8,2,2);cover.updateMatrixWorld(true);
+ assert.equal(aim(new THREE.Vector3(-8,5,2),center,[bath.mesh,cover]),null,'another form in front keeps its drag target');
+ view.group.visible=false;assert.equal(aim(new THREE.Vector3(-8,5,2),center),null);view.group.visible=true;bath.hanging=true;assert.equal(aim(new THREE.Vector3(-8,5,2),center),null);view.dispose();
+});
+test('water clicks and drag strokes use the moved basin coordinates and never move the birdbath',()=>{
+ const bath=form('birdbath');bath.mesh.position.set(4,bath.height/2+1.3,-3);bath.mesh.rotation.y=Math.PI/2;const view=new BathWater(bath),start=bath.mesh.position.clone();
+ bath.mesh.updateMatrixWorld(true);const world=(x,z)=>bath.mesh.localToWorld(new THREE.Vector3(x,BATH.waterY-bath.height/2,z));
+ const center=world(0,0),uv=view.uv(center);assert.ok(Math.abs(uv.u-.5)<1e-6&&Math.abs(uv.v-.5)<1e-6);
+ view.splash(center);view.stroke(view.uv(world(-.2,0)),view.uv(world(.2,0)),.12);let peak=0;
+ advance(dt=>{view.update(dt,new THREE.Vector3());peak=Math.max(peak,...view.field.height.map(Math.abs));},1);
+ assert.ok(peak>.005);assert.deepEqual(bath.mesh.position.toArray(),start.toArray());
+ for(let i=0;i<view.field.mask.length;i++)if(!view.field.mask[i])assert.equal(view.field.height[i],0);
+ advance(dt=>view.update(dt,new THREE.Vector3()),15);assert.ok(Math.max(...view.field.height.map(Math.abs))<.0001);view.dispose();
 });

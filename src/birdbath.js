@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import {WaveField} from './waves.js';
 import {BATH} from './furnishings.js';
 
+// Water wins only when it is actually in front of the rim, pedestal or another form.
+export function hitBathWater(raycaster,views,solidHits=[]){
+ const visible=[...views].filter(v=>v.group.visible&&!v.object.hanging);
+ const hits=raycaster.intersectObjects(visible.map(v=>v.mesh),false);
+ const hit=hits[0];if(!hit||solidHits[0]&&solidHits[0].distance<hit.distance-.0001)return null;
+ return {point:hit.point,distance:hit.distance,view:visible.find(v=>v.mesh===hit.object)};
+}
+
 // A circular, displaced shallow-water surface and short-lived ballistic spray.
 export class BathWater {
  constructor(object){
@@ -20,6 +28,8 @@ export class BathWater {
   this.spray=new THREE.InstancedMesh(new THREE.SphereGeometry(.014,6,4),this.material,48);this.spray.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.spray.frustumCulled=false;this.group.add(this.spray);
   this.drops=[];this.cursor=0;this.transform=new THREE.Object3D();this.splashCount=0;this.update(0,new THREE.Vector3());
  }
+ uv(worldPosition){this.object.mesh.updateWorldMatrix(true,false);const p=this.object.mesh.worldToLocal(worldPosition.clone());return {u:p.x/this.field.width+.5,v:p.z/this.field.width+.5};}
+ stroke(from,to,seconds){this.field.stroke(from,to,seconds,.3);}
  splash(worldPosition){
   this.object.mesh.updateWorldMatrix(true,false);const p=this.object.mesh.worldToLocal(worldPosition.clone());
   this.field.disturb(p.x/this.field.width+.5,p.z/this.field.width+.5,-.65,.075);this.splashCount++;
