@@ -13,6 +13,7 @@ import {PLANTS} from './furnishings.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
 import {DitherShader} from './dither.js';
+import {makeGroundMaterial} from './ground-shadows.js';
 import {PendulumScene,CEILING_HEIGHT} from './pendulums.js';
 import {HoleLayout,TERRAIN_EXTENT} from './terrain.js';
 import {WindField} from './wind.js';
@@ -40,7 +41,7 @@ const ambient=new THREE.HemisphereLight(0xffffff,0x969696,1.25*(+$('light-streng
 const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));const dither=new ShaderPass(DitherShader);composer.addPass(dither);const hangingFocus=new HangingFocus();const refraction=new WaterRefraction();dither.uniforms.hangingMask.value=hangingFocus.target.texture;
 const white=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.88,metalness:0});
 const windTrails=new WindTrails(scene);
-const wind=new WindField(),layout=new HoleLayout(),terrain=new HoleTerrain(scene,white);terrain.materialForHole=id=>state.holes.find(o=>o.id===id)?.primaryMaterial??white;
+const wind=new WindField(),layout=new HoleLayout(),terrain=new HoleTerrain(scene,makeGroundMaterial(white,sun));terrain.materialForHole=id=>state.holes.find(o=>o.id===id)?.primaryMaterial??white;
 physics=new CollisionScene(RAPIER);physics.objects=state.objects;const stacks=new StackScene(physics);
 const pendulums=new PendulumScene(RAPIER);
 const hedges=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.needsUpdate=true;});
