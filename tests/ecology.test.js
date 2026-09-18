@@ -23,7 +23,18 @@ test('nearby mouse scares birds, fades them out, and prevents immediate respawn'
 test('birds leave when leaf clusters disappear and remain bounded in number',()=>{const c=new BirdColony(),p=pile();advance(dt=>c.step(dt,[p]),60);assert.ok(c.birds.length<=5&&c.birds.length>0);p.count=0;advance(dt=>c.step(dt,[p]),3);assert.equal(c.birds.length,0);});
 test('complete meadow initializes render geometry, simulates loose matter, and keeps foliage finite',()=>{
  const scene=new THREE.Scene(),p=new PendulumScene(R),collision=new CollisionScene(R),wind=new WindField(),e=new Ecology(scene,p,collision,wind,R);e.water=new WaveField();p.beforeStep=dt=>e.beforeStep(dt);
- assert.equal(e.strands.length,21);assert.equal(e.loose.filter(o=>o.type==='leaf').length,16);assert.equal(e.loose.filter(o=>o.type==='seed').length,3);
+ assert.equal(e.grassClusters.length,18);
+ assert.equal(e.strands.length,e.grassClusters.reduce((n,c)=>n+c.blades.length,3));
+ assert.equal(e.strands.filter(s=>s.head).length,3);
+ assert.ok(new Set(e.grassClusters.map(c=>c.blades.length)).size>=4,'clusters should vary in density');
+ for(const cluster of e.grassClusters){
+  assert.ok(cluster.blades.length>=2&&cluster.blades.length<=7);
+  for(const blade of cluster.blades){
+   assert.ok(blade.strand.root.distanceTo(cluster.root)<=.12,'roots stay in a sparse, compact cluster');
+   assert.equal(blade.strand.nodes.length,4,'each blade retains its simple geometry and physics');
+  }
+ }
+ assert.equal(e.loose.filter(o=>o.type==='leaf').length,16);assert.equal(e.loose.filter(o=>o.type==='seed').length,3);
  wind.strength=.7;const start=e.loose.find(o=>o.type==='seed').mesh.position.clone();advance(dt=>{p.step(dt);e.update(dt,null,0,0);},3);
  const seed=e.loose.find(o=>o.type==='seed');assert.ok(seed.mesh.position.distanceTo(start)>.1,'wind should roll a seed pod');
  assert.ok(e.strands.every(s=>s.mesh.geometry.attributes.position.array.every(Number.isFinite)));assert.ok(e.loose.every(o=>o.mesh.position.toArray().every(Number.isFinite)));

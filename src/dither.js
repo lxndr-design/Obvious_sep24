@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 export const DitherShader={
- uniforms:{tDiffuse:{value:null},hangingMask:{value:null},hangingBlur:{value:0},resolution:{value:new THREE.Vector2()},bufferResolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
+ uniforms:{tDiffuse:{value:null},hangingMask:{value:null},hangingBlur:{value:0},resolution:{value:new THREE.Vector2()},bufferResolution:{value:new THREE.Vector2()},scale:{value:1},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
  vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
  fragmentShader:`
  uniform sampler2D tDiffuse;
