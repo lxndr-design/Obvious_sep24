@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 export const DitherShader={
- uniforms:{tDiffuse:{value:null},resolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
+ uniforms:{tDiffuse:{value:null},hangingMask:{value:null},hangingBlur:{value:0},resolution:{value:new THREE.Vector2()},scale:{value:2},ink:{value:0},inkColor:{value:new THREE.Vector3(48/255,48/255,48/255)},paperColor:{value:new THREE.Vector3(1,1,1)}},
  vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
  fragmentShader:`
  uniform sampler2D tDiffuse;
+ uniform sampler2D hangingMask;
+ uniform float hangingBlur;
  // CSS viewport size: a 5 px cell stays 5 screen pixels on high-DPI displays.
  uniform vec2 resolution;
  uniform float scale;
@@ -24,6 +26,17 @@ export const DitherShader={
    sampleUV=min((pixel+.5)*scale,resolution-.5)/resolution;
   }
   vec3 c=texture2D(tDiffuse,sampleUV).rgb;
+  if(hangingBlur>0.){
+   vec2 r=vec2(.85)/resolution;
+   float mask=texture2D(hangingMask,sampleUV).r;
+   vec3 soft=c*4.;float coverage=mask*4.;
+   for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++){
+    if(x==0&&y==0)continue;
+    vec2 uv=sampleUV+vec2(float(x),float(y))*r;
+    soft+=texture2D(tDiffuse,uv).rgb;coverage+=texture2D(hangingMask,uv).r;
+   }
+   c=mix(c,soft/12.,max(mask,coverage/12.)*.7);
+  }
   // Render target is linear; this final pass outputs sRGB directly.
   c=mix(c*12.92,1.055*pow(max(c,vec3(0.)),vec3(1./2.4))-.055,step(vec3(.0031308),c));
   // Zero disables pixelation, palette quantization and ordered dithering.

@@ -15,6 +15,8 @@ import {HoleLayout,TERRAIN_EXTENT} from './terrain.js';
 import {WindField} from './wind.js';
 import {Ecology} from './ecology.js';
 import {hitBathWater} from './birdbath.js';
+import {dragFloor,dragAnchor,DragPresentation,DragGhost} from './dragging.js';
+import {HangingFocus} from './hanging-focus.js';
 import {StackScene} from './stacking.js';
 import {SeedSlingshot,SlingGuide} from './slingshot.js';
 const $=id=>document.getElementById(id);
@@ -29,14 +31,14 @@ const controls=new OrbitControls(camera,canvas);controls.enableDamping=true;cont
 function home(){camera.position.set(18,18.4,18);controls.target.set(0,.4,0);camera.zoom=1;camera.updateProjectionMatrix();controls.update();}
 home();
 const ambient=new THREE.HemisphereLight(0xffffff,0x969696,1.25);scene.add(ambient);const sun=new THREE.DirectionalLight(0xffffff,3.8);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-12,right:12,top:12,bottom:-12,near:1,far:45});sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;scene.add(sun,sun.target);let sunAngle=135,lastSunZoom=0;function followSun(){const x=controls.target.x,z=controls.target.z;if(sun.target.position.x===x&&sun.target.position.z===z&&lastSunZoom===camera.zoom)return;sun.target.position.set(x,0,z);const a=sunAngle*Math.PI/180;sun.position.set(x+Math.cos(a)*12,17,z+Math.sin(a)*12);const span=Math.max(12,16/camera.zoom);Object.assign(sun.shadow.camera,{left:-span,right:span,top:span,bottom:-span});sun.shadow.camera.updateProjectionMatrix();lastSunZoom=camera.zoom;renderer.shadowMap.needsUpdate=true;}function setSun(v){sunAngle=v;lastSunZoom=0;followSun();}$('sun').value=135;setSun(135);
-const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));const dither=new ShaderPass(DitherShader);composer.addPass(dither);
+const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));const dither=new ShaderPass(DitherShader);composer.addPass(dither);const hangingFocus=new HangingFocus();dither.uniforms.hangingMask.value=hangingFocus.target.texture;
 const white=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.88,metalness:0});
 const wind=new WindField(),layout=new HoleLayout(),terrain=new HoleTerrain(scene,white);
 physics=new CollisionScene(RAPIER);physics.objects=state.objects;const stacks=new StackScene(physics);
 const pendulums=new PendulumScene(RAPIER);
 const ecology=new Ecology(scene,pendulums,physics,wind,RAPIER);ecology.terrain=terrain;pendulums.beforeStep=dt=>ecology.beforeStep(dt);
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
-const objectGroup=new THREE.Group();scene.add(objectGroup);
+const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
 const cursorGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.24,.012,-.24),new THREE.Vector3(.24,.012,-.24),new THREE.Vector3(.24,.012,.24),new THREE.Vector3(-.24,.012,.24),new THREE.Vector3(-.24,.012,-.24)]);const gridCursor=new THREE.Line(cursorGeometry,new THREE.LineBasicMaterial({color:0x57794a,transparent:true,opacity:.7}));gridCursor.visible=false;scene.add(gridCursor);
 const cableMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9,transparent:true,depthWrite:false});
@@ -84,7 +86,7 @@ function addHole(position=null,size=2){
  const geometry=new THREE.BoxGeometry(size,.012,size),mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));geometry.computeBoundingBox();mesh.position.set(position[0],.006,position[1]);
  const o={id:++state.sequence,type:'pool',size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();return o;
 }
-function moveGround(o,target){const old=o.mesh.position.clone(),members=stacks.members(o);if(!stacks.move(o,target))return false;for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
+function moveGround(o,target,dragging=false){const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=dragging?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved)return false;presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
 function addObject(type,position=null,hanging=false,cableLength=5){if(type==='pool')return addHole(position);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeForm(type,RAPIER);const mesh=new THREE.Mesh(form.geometry,white.clone());mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};mesh.userData.object=o;
  const y=hanging?8.5-cableLength-form.height/2:form.height/2;
@@ -106,7 +108,7 @@ function setHang(o,hanging,length=o.cableLength){
  pendulums.rebuild(o);updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o){
- if(!o)return;const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
+ if(!o)return;presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
@@ -126,7 +128,8 @@ canvas.addEventListener('pointerleave',()=>ecology.setPointer(null,null));
 const activePointers=new Set();
 canvas.addEventListener('pointerdown',e=>{activePointers.add(e.pointerId);if(activePointers.size>1)cancelDrag();},true);
 for(const event of ['pointerup','pointercancel'])canvas.addEventListener(event,e=>activePointers.delete(e.pointerId),true);
-function pick(){
+function pick(){const restore=presentation.apply();try{return pickScene();}finally{restore();}}
+function pickScene(){
  const handles=raycaster.intersectObjects(state.selected?.hanging?[state.selected.cable.hit]:[],false);
  if(handles.length)return {object:handles[0].object.userData.object,mode:'anchor',hit:handles[0].point};
  const hits=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false),waterHit=hitWater(null,hits);
@@ -149,7 +152,8 @@ canvas.addEventListener('pointerdown',event=>{
   else plane.set(new THREE.Vector3(0,1,0),-(mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y));
   if(!raycaster.ray.intersectPlane(plane,point))return;
   state.drag={object:o,mode,offset:(mode==='anchor'?o.anchor:o.mesh.position).clone().sub(point),snapshot:mode==='floor'?stacks.snapshot(o):mode==='pool'?{position:o.mesh.position.clone()}:pendulums.snapshot(o),id:event.pointerId};
-  if(mode==='anchor')pendulums.beginAnchor(o);if(mode==='pull')pendulums.beginPull(o);
+  if(mode==='floor'||mode==='anchor')dragGhost.begin(mode==='floor'?stacks.members(o):[o]);
+  if(mode==='anchor')pendulums.beginAnchor(o);if(mode==='pull'){presentation.clear(o);pendulums.beginPull(o);}
   canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
   notify(mode==='pull'?'Pull freely · release to swing · Esc to cancel':mode==='anchor'?'Reposition the ceiling anchor · grid locked':'Grid locked · release to place · Esc to cancel');
  }else if(picked?.water){select(null);if(picked.view.object)picked.view.splash(picked.hit);else splash(picked.hit);state.drag={water:true,bath:picked.view.object?picked.view:null,id:event.pointerId,last:performance.now(),previous:waterUV(picked.view,picked.hit),view:picked.view};canvas.style.cursor='crosshair';canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
@@ -163,24 +167,30 @@ canvas.addEventListener('pointermove',event=>{
  const {object:o,mode}=state.drag,target=point.clone().add(state.drag.offset);
  if(mode==='seed'){sling.aim(target);slingGuide.update(sling);return;}
  if(mode==='pull'){pendulums.setPullTarget(target);return;}
+ const rawTarget=target.clone();
+ if(state.drag.blocked&&mode!=='pool')dragGhost.show(new THREE.Vector3(rawTarget.x-(mode==='anchor'?o.anchor.x:o.mesh.position.x),state.drag.ghostY-o.mesh.position.y,rawTarget.z-(mode==='anchor'?o.anchor.z:o.mesh.position.z)));
  target.x=Math.round(target.x/GRID)*GRID;target.z=Math.round(target.z/GRID)*GRID;target.y=mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y;
  // Pointer events often repeat the same snapped target. Do collision work once.
- if(state.drag.lastTarget?.equals(target))return;
+ if(state.drag.lastTarget?.equals(target)&&!state.drag.blocked)return;
  state.drag.lastTarget=target.clone();
  gridCursor.position.set(target.x,0,target.z);
- const moved=mode==='pool'?moveHole(o,target):mode==='anchor'?pendulums.moveAnchor(o,target,physics):moveGround(o,target);
+ let moved;
+ if(mode==='anchor'){const visual=presentation.capture([o]),result=dragAnchor(pendulums,physics,o,target);moved=result.moved;if(moved)presentation.animate(visual,result.relocated);}
+ else moved=mode==='pool'?moveHole(o,target):moveGround(o,target,true);
+ state.drag.blocked=!moved;
+ if(moved)dragGhost.hide();else if(mode!=='pool'){state.drag.ghostY=mode==='anchor'?o.mesh.position.y:stacks.supports(o,target.x,target.z)[0].y;dragGhost.show(new THREE.Vector3(rawTarget.x-(mode==='anchor'?o.anchor.x:o.mesh.position.x),state.drag.ghostY-o.mesh.position.y,rawTarget.z-(mode==='anchor'?o.anchor.z:o.mesh.position.z)));}
 
  if(moved){const placed=mode==='anchor'?o.anchor:o.mesh.position;gridCursor.position.set(placed.x,0,placed.z);}
- gridCursor.material.color.set(moved?0x57794a:0x995548);notify(moved?'Grid locked · release to place · Esc to cancel':'Occupied — choose a clear path');updateCable(o);select(o);
+ gridCursor.material.color.set(moved?0x57794a:0x995548);notify(moved?'Grid locked · release to place · Esc to cancel':'Move the ghost to a clear spot');updateCable(o);select(o);
 });
 function endDrag(e,cancel=false){
  if(!state.drag||e&&e.pointerId!==state.drag.id)return;const {id,object,mode}=state.drag;
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
  if(mode==='pull'){pendulums.releasePull();notify('Released · gravity takes over');}
  if(mode==='anchor'){pendulums.endAnchor(object);notify('Anchor placed · pull the hanging form to swing');}
- state.drag=null;gridCursor.visible=false;controls.enabled=true;canvas.style.cursor='default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+ dragGhost.end();state.drag=null;gridCursor.visible=false;controls.enabled=true;canvas.style.cursor='default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
 }
-function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot)pendulums.syncPose(s.object);}else pendulums.restore(drag.object,drag.snapshot);updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
+function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',cancelDrag);canvas.addEventListener('lostpointercapture',cancelDrag);window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
 function placeForm(o,x,z){
  const target=new THREE.Vector3(Math.round(x/GRID)*GRID,o.hanging?CEILING_HEIGHT:o.mesh.position.y,Math.round(z/GRID)*GRID);
@@ -221,7 +231,7 @@ for(const [id,uniform] of [['ink-color','inkColor'],['paper-color','paperColor']
 }
 $('sun').addEventListener('input',e=>{setSun(+e.target.value);$('sun-value').textContent=e.target.value+'°';});$('light-strength').addEventListener('input',e=>{const strength=+e.target.value/100;sun.intensity=3.8*strength;ambient.intensity=1.25*strength;$('light-strength-value').textContent=e.target.value+'%';});
 $('dither').addEventListener('input',e=>{const scale=+e.target.value;dither.uniforms.scale.value=scale;$('dither-value').textContent=scale===0?'0 · Off':scale+' px';$('ink').disabled=scale===0;$('tone-colors').disabled=scale===0;$('tone-hint').textContent=scale===0?'Turn dithering on to use ink and paper colors.':'Two-tone uses just these two colors. Turn it off for shades between them.';$('ink').closest('.switch-row').classList.toggle('is-disabled',scale===0);});$('ink').addEventListener('change',e=>dither.uniforms.ink.value=+e.target.checked);$('wind').addEventListener('input',e=>{wind.strength=+e.target.value/100;$('wind-value').textContent=+e.target.value===0?'Calm':e.target.value+'%';});$('wind-direction').addEventListener('input',e=>{wind.direction=+e.target.value;$('wind-direction-value').textContent=e.target.value+'°';});$('ripple').addEventListener('click',()=>{const h=state.selected?.type==='pool'?state.selected:state.holes[0];if(h)splash(h.mesh.position,10);});$('pause').addEventListener('click',()=>{state.paused=!state.paused;$('pause').innerHTML=state.paused?'Resume <span>▷</span>':'Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed',String(state.paused));});$('home').addEventListener('click',home);$('reset').addEventListener('click',reset);$('rotate').addEventListener('click',rotateSelected);$('remove').addEventListener('click',()=>remove(state.selected));$('suspended').addEventListener('change',e=>state.selected&&setHang(state.selected,e.target.checked));$('cable').addEventListener('input',e=>state.selected&&setHang(state.selected,true,+e.target.value));$('colliders').addEventListener('change',e=>{state.debug=e.target.checked;for(const o of state.objects)o.debug.visible=state.debug;notify(state.debug?'Collision shapes visible · the arch opening is clear':'Collision shapes hidden');});$('settings-toggle').addEventListener('click',()=>{$('inspector').classList.toggle('open');$('settings-toggle').setAttribute('aria-expanded',String($('inspector').classList.contains('open')));});
-function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);composer.setSize(w,h);const aspect=w/h,available=w<760?w-26:w-305,vertical=Math.max(8.6,19.5*h/(2*available));camera.left=-vertical*aspect;camera.right=vertical*aspect;camera.top=vertical;camera.bottom=-vertical;camera.setViewOffset(w,h,w<760?0:130,0,w,h);camera.updateProjectionMatrix();dither.uniforms.resolution.value.set(w,h);}
+function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);composer.setSize(w,h);const aspect=w/h,available=w<760?w-26:w-305,vertical=Math.max(8.6,19.5*h/(2*available));camera.left=-vertical*aspect;camera.right=vertical*aspect;camera.top=vertical;camera.bottom=-vertical;camera.setViewOffset(w,h,w<760?0:130,0,w,h);camera.updateProjectionMatrix();dither.uniforms.resolution.value.set(w,h);hangingFocus.resize(w,h);}
 window.addEventListener('resize',resize);resize();reset();
 let previous=performance.now();
 let shadowClock=0;
@@ -234,8 +244,12 @@ function tick(now){
  if(!state.paused)terrain.step(dt,wind);
  // Meadow shadows update at 30 Hz; water shading and physical motion remain smooth.
  shadowClock+=dt;if(shadowClock>=1/30){renderer.shadowMap.needsUpdate=true;shadowClock=0;}
+ presentation.step(dt);const restore=presentation.apply();
+ for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
  if(state.selected)selectionBox.setFromObject(state.selected.mesh);
- composer.render();
+ dither.uniforms.hangingBlur.value=+hangingFocus.render(renderer,camera,state.objects);
+ composer.render();restore();
+ for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
