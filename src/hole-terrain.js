@@ -8,9 +8,13 @@ export class HoleTerrain {
  rebuild(layout){
   const old=this.views;this.views=[];
   for(const child of [...this.group.children]){child.geometry?.dispose();this.group.remove(child);}
-  const box=(p,h,y)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(p.w,h,p.d),this.groundMaterial);m.position.set(p.x,y,p.z);m.receiveShadow=m.castShadow=true;this.group.add(m);};
+  const box=(p,h,y)=>{const hole=layout.holes.find(h=>Math.abs(p.x-h.x)<=h.size/2+.05&&Math.abs(p.z-h.z)<=h.size/2+.05);const m=new THREE.Mesh(new THREE.BoxGeometry(p.w,h,p.d),this.materialForHole&&hole?this.materialForHole(hole.id):this.groundMaterial);m.position.set(p.x,y,p.z);m.receiveShadow=m.castShadow=true;this.group.add(m);};
   for(const p of layout.ground){const m=new THREE.Mesh(new THREE.PlaneGeometry(p.w,p.d),this.groundMaterial);m.rotation.x=-Math.PI/2;m.position.set(p.x,0,p.z);m.receiveShadow=true;this.group.add(m);}
-  for(const p of layout.bottom)box(p,.18,-.8);
+  for(const p of layout.bottom){
+   const xs=[p.x-p.w/2,...new Set(layout.rects.flatMap(r=>[r.x0,r.x1]).filter(x=>x>p.x-p.w/2&&x<p.x+p.w/2)),p.x+p.w/2].sort((a,b)=>a-b);
+   const zs=[p.z-p.d/2,...new Set(layout.rects.flatMap(r=>[r.z0,r.z1]).filter(z=>z>p.z-p.d/2&&z<p.z+p.d/2)),p.z+p.d/2].sort((a,b)=>a-b);
+   for(let j=1;j<zs.length;j++)for(let i=1;i<xs.length;i++)box({x:(xs[i]+xs[i-1])/2,z:(zs[j]+zs[j-1])/2,w:xs[i]-xs[i-1],d:zs[j]-zs[j-1]},.18,-.8);
+  }
   for(const p of layout.walls)box(p,.8,-.4);
   for(const component of layout.components){
    const width=Math.max(component.x1-component.x0,component.z1-component.z0),x=(component.x0+component.x1)/2,z=(component.z0+component.z1)/2,size=Math.min(129,Math.max(17,Math.floor(width/.05)+1));

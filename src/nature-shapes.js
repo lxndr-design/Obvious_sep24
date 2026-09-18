@@ -52,7 +52,7 @@ export function birdMesh(palette=null){
  }
  const feet=new THREE.BufferGeometry();feet.setAttribute('position',new THREE.Float32BufferAttribute([.019,-.08,.015,.029,-.08,.015,.032,-.015,.015,.019,-.08,-.015,.029,-.08,-.015,.032,-.015,-.015],3));feet.computeVertexNormals();
  const legs=new THREE.Mesh(feet,material);legs.castShadow=true;group.add(legs);
- const view={group,body,wings,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};setBirdWings(view,0);return view;
+ const view={group,body,wings,torso:mesh,torsoRest:new Float32Array(geometry.attributes.position.array),fatness:0,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};setBirdWings(view,0);return view;
 }
 export function seedForm(R){
  const geometries=[],parts=[];
@@ -63,4 +63,14 @@ export function seedForm(R){
   const geometry=new THREE.ConeGeometry(.018,.06,3);geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),direction));const offset=direction.multiplyScalar(.075);geometry.translate(offset.x,offset.y,offset.z);add(geometry);
  }
  const geometry=mergeGeometries(geometries);for(const g of geometries)g.dispose();return {geometry,parts};
+}
+
+export function setBirdFatness(view,fatness){
+ fatness=Math.max(0,Math.min(1,fatness));if(Math.abs(view.fatness-fatness)<.001)return;view.fatness=fatness;
+ const a=view.torso.geometry.attributes.position,rest=view.torsoRest;
+ for(let i=0;i<a.count;i++){const j=i*3,x=rest[j],y=rest[j+1],z=rest[j+2],belly=Math.max(0,1-Math.abs(x-.005)/.095);
+  a.setXYZ(i,x,y-fatness*belly*.035,z*(1+fatness*belly*1.8));
+ }
+ a.needsUpdate=true;view.torso.geometry.computeVertexNormals();view.torso.geometry.computeBoundingSphere();view.torso.geometry.computeBoundingBox();
+ view.wings.forEach((w,i)=>w.position.z=(i===0?1:-1)*(.024+fatness*.023));
 }
