@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import {birdFootHeight,groundHopHeight} from './bird-traits.js';
 export const SEED_RADIUS=.042,SEED_HEIGHT=SEED_RADIUS*.6;
-export const seedLanding=seed=>seed.position.clone().add(new THREE.Vector3(0,.08-SEED_HEIGHT,0));
+export const seedLanding=(seed,bird)=>seed.position.clone().add(new THREE.Vector3(0,birdFootHeight(bird)-SEED_HEIGHT,0));
 export class BirdseedField {
  constructor(random=Math.random){this.random=random;this.seeds=new Map();this.patches=[];this.sequence=0;this.patchSequence=0;this.eaten=0;this.capacity=512;this.version=0;}
  scatter(point,valid=()=>true,count=1){
@@ -46,11 +47,11 @@ export function feedBird(bird,site,dt,clear=()=>true){
  const field=site.field;bird.seedField=field;
  if(bird.fullness>=bird.capacity){bird.state='sated';bird.age=0;bird.peck=0;field.release(bird.id);return;}
  let seed=field.seeds.get(bird.seedId);
- if(!seed||seed.eatenBy!==null||seed.owner!==bird.id||!seed.settled){seed=field.claim(bird.position,bird.id,site.id,p=>clear(p.clone().add(new THREE.Vector3(0,.08-SEED_HEIGHT,0)),site));bird.seedId=seed?.id;bird.eatTime=0;}
+ if(!seed||seed.eatenBy!==null||seed.owner!==bird.id||!seed.settled){seed=field.claim(bird.position,bird.id,site.id,p=>clear(p.clone().add(new THREE.Vector3(0,birdFootHeight(bird)-SEED_HEIGHT,0)),site));bird.seedId=seed?.id;bird.eatTime=0;}
  if(!seed){bird.peck=0;return;}
- if(!clear(seedLanding(seed),site)){field.release(bird.id);bird.seedId=null;return;}
- const target=seedLanding(seed);if(Math.abs(target.y-bird.position.y)>.16){bird.from=bird.position.clone();bird.target=target;bird.age=0;bird.state='arriving';bird.residentArrival=true;return;}const delta=target.clone().sub(bird.position);delta.y=0;const distance=delta.length();
- if(distance>.065){const next=bird.position.clone().addScaledVector(delta,Math.min(1,dt*(.95-.5*(bird.caution??0))/distance));next.y=target.y;if(clear(next,site))bird.position.copy(next);else{field.release(bird.id);bird.seedId=null;}bird.yaw=Math.atan2(-delta.z,delta.x);bird.peck=0;return;}
- bird.eatTime=(bird.eatTime??0)+dt;bird.peck=Math.max(0,Math.sin(Math.min(1,bird.eatTime/(.5+.4*(bird.caution??0)))*Math.PI));
+ if(!clear(seedLanding(seed,bird),site)){field.release(bird.id);bird.seedId=null;return;}
+ const target=seedLanding(seed,bird);if(Math.abs(target.y-bird.position.y)>.16){bird.from=bird.position.clone();bird.target=target;bird.age=0;bird.state='arriving';bird.residentArrival=true;return;}const delta=target.clone().sub(bird.position);delta.y=0;const distance=delta.length();
+ if(distance>.065){const next=bird.position.clone().addScaledVector(delta,Math.min(1,dt*(.95-.5*(bird.caution??0))/distance));next.y=target.y+groundHopHeight(bird,dt);if(clear(next,site))bird.position.copy(next);else{field.release(bird.id);bird.seedId=null;}bird.yaw=Math.atan2(-delta.z,delta.x);bird.peck=0;return;}
+ bird.position.y=target.y;bird.groundHopPhase=0;bird.eatTime=(bird.eatTime??0)+dt;bird.peck=Math.max(0,Math.sin(Math.min(1,bird.eatTime/(.5+.4*(bird.caution??0)))*Math.PI));
  if(bird.eatTime>=.25+.2*(bird.caution??0)&&field.consume(seed.id,bird.id)){bird.fullness++;bird.fatness=bird.fullness/bird.capacity;bird.seedId=null;bird.eatTime=0;}
 }

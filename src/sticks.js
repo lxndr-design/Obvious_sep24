@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {birdScale,birdFootHeight} from './bird-traits.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Two tapered, four-sided branches, each with its own matching convex collider.
@@ -29,7 +30,7 @@ export class StickCollection {
  }
  reset(){this.owners.clear();this.taken.clear();}
 }
-export function stickLanding(site){return site.position.clone().add(new THREE.Vector3(-.14,.08-site.object.height/2,0));}
+export function stickLanding(site,bird){return site.position.clone().add(new THREE.Vector3(-.14*birdScale(bird),birdFootHeight(bird)-site.object.height/2,0));}
 export function attachCarriedStick(view,bird){
  if(!bird.carriedStick)return;
  if(bird.carriedStick.parent!==view.body){view.body.add(bird.carriedStick);view.materials.push(bird.carriedStick.material);}
