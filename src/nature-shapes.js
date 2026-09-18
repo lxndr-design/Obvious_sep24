@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {setBirdWings} from './bird-wings.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Small white silhouettes. Geometry stays deliberately sparse; light supplies the detail.
@@ -51,7 +52,7 @@ export function birdMesh(palette=null){
  }
  const feet=new THREE.BufferGeometry();feet.setAttribute('position',new THREE.Float32BufferAttribute([.019,-.08,.015,.029,-.08,.015,.032,-.015,.015,.019,-.08,-.015,.029,-.08,-.015,.032,-.015,-.015],3));feet.computeVertexNormals();
  const legs=new THREE.Mesh(feet,material);legs.castShadow=true;group.add(legs);
- return {group,body,wings,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};
+ const view={group,body,wings,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};setBirdWings(view,0);return view;
 }
 export function seedForm(R){
  const geometries=[],parts=[];

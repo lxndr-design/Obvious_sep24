@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {animateBirdWings} from './bird-wings.js';
 export function seededRandom(seed=901){return ()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};}
 const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
 const available=site=>site.kind==='bath'||site.count>=3;
@@ -32,17 +33,17 @@ export class BirdColony {
    if(b.state!=='departing'&&(!site||!isClear(b.target,site)||(b.habitat==='bath'&&site.position.distanceTo(b.sitePosition)>.02)))this.depart(b,pointer);
    if(b.state==='arriving'){
     const t=Math.min(1,b.age/2.8);b.position.lerpVectors(b.from,b.target,smooth(t));b.position.y+=Math.sin(Math.PI*t)*.35;
-    b.opacity=smooth(t/.8);b.wing=Math.sin(b.age*34)*.95;b.peck=0;
-    if(t===1){b.state=b.habitat==='bath'?'perching':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;b.wing=0;}
+    b.opacity=smooth(t/.8);b.peck=0;
+    if(t===1){b.state=b.habitat==='bath'?'perching':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5;b.lastPeck=-1;}
    }else if(b.state==='foraging'){
-    b.opacity=1;b.wing=0;
+    b.opacity=1;
     if(b.age>=b.nextWalk){const a=this.random()*Math.PI*2,r=.2+this.random()*.4;const target=site.position.clone().add(new THREE.Vector3(Math.cos(a)*r,.08,Math.sin(a)*r));if(isClear(target,site)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(target)>.4))b.walkTarget=target;b.nextWalk=b.age+1.8+this.random()*2.1;}
     const delta=b.walkTarget.clone().sub(b.position);delta.y=0;const distance=delta.length();
     if(distance>.025){const next=b.position.clone().addScaledVector(delta,Math.min(1,dt*.65/distance));if(isClear(next,site)&&this.birds.every(other=>other===b||other.state!=='foraging'||other.position.distanceTo(next)>.33))b.position.copy(next);b.yaw=Math.atan2(-delta.z,delta.x);b.position.y=.08+Math.abs(Math.sin(b.age*17))*.018;b.peck=0;}
     else{b.position.y=.08;const cycle=Math.floor(b.age/2.5),phase=(b.age%2.5)/2.5;b.peck=phase<.36?Math.sin(phase/.36*Math.PI):0;if(b.peck>.9&&cycle!==b.lastPeck){b.lastPeck=cycle;this.onPeck?.(b.position,site);}}
     if(b.age>50+8*b.id)this.depart(b,null);
    }else if(b.state==='perching'){
-    b.opacity=1;b.wing=0;b.peck=.08*Math.sin(b.age*2);b.position.copy(b.target);
+    b.opacity=1;b.peck=.08*Math.sin(b.age*2);b.position.copy(b.target);
     if(b.age>2.5){
      // One bird bathes at a time; companions wait at separated points on the rim.
      const occupied=this.birds.some(other=>other!==b&&other.pileId===b.pileId&&(other.state==='bathing'||other.state==='hopping'));
@@ -50,18 +51,19 @@ export class BirdColony {
      if(!occupied&&isClear(target,site))this.hop(b,target,'bathing');
     }
    }else if(b.state==='hopping'){
-    const t=Math.min(1,b.age/.65);b.position.lerpVectors(b.from,b.to,smooth(t));b.position.y+=Math.sin(t*Math.PI)*.20;b.wing=Math.sin(t*Math.PI)*.7;b.peck=0;
-    if(t===1){b.state=b.nextState;b.age=0;b.lastSplash=-1;b.wing=0;}
+    const t=Math.min(1,b.age/.65);b.position.lerpVectors(b.from,b.to,smooth(t));b.position.y+=Math.sin(t*Math.PI)*.20;b.peck=0;
+    if(t===1){b.state=b.nextState;b.age=0;b.lastSplash=-1;}
    }else if(b.state==='bathing'){
     const cycle=Math.floor(b.age/1.6),phase=(b.age%1.6)/1.6,active=phase<.65;
     b.position.copy(b.to);b.position.y-=active?Math.sin(phase/.65*Math.PI)*.035:0;
-    b.wing=active?Math.sin(b.age*42)*1.25:.12;b.peck=active?Math.max(0,Math.sin(b.age*8))*.7:0;
+    b.peck=active?Math.max(0,Math.sin(b.age*8))*.7:0;
     if(active&&Math.floor(b.age/.18)!==b.lastSplash){b.lastSplash=Math.floor(b.age/.18);this.onSplash?.(b.position,site);}
     if(cycle>=3)this.hop(b,b.target.clone(),'perching');
    }else{
-    const t=Math.min(1,b.age/2.5);b.position.lerpVectors(b.from,b.to,smooth(t));b.opacity=b.startOpacity*(1-smooth((t-.1)/.75));b.wing=Math.sin(b.age*38)*1.15;b.peck=0;
+    const t=Math.min(1,b.age/2.5);b.position.lerpVectors(b.from,b.to,smooth(t));b.opacity=b.startOpacity*(1-smooth((t-.1)/.75));b.peck=0;
    }
    if(b.habitat==='bath'&&b.visitAge>45+4*b.id)this.depart(b,null);
+   animateBirdWings(b,dt);
   }
   this.birds=this.birds.filter(b=>b.state!=='departing'||b.age<2.5);
   if(this.time>=this.nextArrival&&this.birds.length<this.limit){
@@ -79,7 +81,7 @@ export class BirdColony {
     }
     if(!target)continue;
     const from=target.clone().add(new THREE.Vector3(-2.5-this.random(),3.5+this.random(),-1));
-    this.birds.push({id:++this.sequence,pileId:site.id,habitat:site.kind??'leaves',sitePosition:site.position.clone(),angle,state:'arriving',age:0,visitAge:0,position:from.clone(),from,target,opacity:0,wing:0,peck:0,yaw:Math.atan2(-(target.z-from.z),target.x-from.x)});
+    this.birds.push({id:++this.sequence,pileId:site.id,habitat:site.kind??'leaves',sitePosition:site.position.clone(),angle,state:'arriving',age:0,visitAge:0,position:from.clone(),from,target,opacity:0,wing:0,wingSpread:1,wingFlap:1.12,wingPhase:0,wingState:'flapping',peck:0,yaw:Math.atan2(-(target.z-from.z),target.x-from.x)});
     this.nextArrival=this.time+8+this.random()*5;spawned=true;break;
    }
    if(!spawned)this.nextArrival=this.time+(candidates.length?2:1);
