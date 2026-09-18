@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
+import {makeBirdbath,BATH} from './bath-shapes.js';
 import {stackingProfile} from './stacking.js';
 
 export const HEDGE_TILE=1;
@@ -25,20 +26,20 @@ export function makeHedge(R,joins=0){
 }
 
 export class HedgeScene {
- constructor(R,collision,pendulums,onChange=()=>{}){this.R=R;this.collision=collision;this.pendulums=pendulums;this.onChange=onChange;}
+ constructor(R,collision,pendulums,onChange=()=>{},type='hedge'){this.type=type;this.tile=type==='birdbath'?BATH.tile:HEDGE_TILE;this.key=type==='birdbath'?'bathJoins':'hedgeJoins';this.make=type==='birdbath'?makeBirdbath:makeHedge;this.R=R;this.collision=collision;this.pendulums=pendulums;this.onChange=onChange;}
  refresh(excluded=null){
-  const hedges=this.collision.objects.filter(o=>o.type==='hedge'),changes=[];
+  const hedges=this.collision.objects.filter(o=>o.type===this.type),changes=[];
   const active=o=>o!==excluded&&!o.hanging&&!o.support;
   for(const o of hedges){
    let joins=0;
    if(active(o))for(const other of hedges){
     if(other===o||!active(other)||Math.abs(o.mesh.position.y-other.mesh.position.y)>.001)continue;
     const x=other.mesh.position.x-o.mesh.position.x,z=other.mesh.position.z-o.mesh.position.z;
-    if(Math.abs(z)<.001){if(Math.abs(x+HEDGE_TILE)<.001)joins|=1;if(Math.abs(x-HEDGE_TILE)<.001)joins|=2;}
-    if(Math.abs(x)<.001){if(Math.abs(z+HEDGE_TILE)<.001)joins|=4;if(Math.abs(z-HEDGE_TILE)<.001)joins|=8;}
+    if(Math.abs(z)<.001){if(Math.abs(x+this.tile)<.001)joins|=1;if(Math.abs(x-this.tile)<.001)joins|=2;}
+    if(Math.abs(x)<.001){if(Math.abs(z+this.tile)<.001)joins|=4;if(Math.abs(z-this.tile)<.001)joins|=8;}
    }
-   if(joins===o.hedgeJoins)continue;
-   const form=makeHedge(this.R,joins),old={geometry:o.geometry,parts:o.parts,stacking:o.stacking,hedgeJoins:o.hedgeJoins};
+   if(joins===o[this.key])continue;
+   const form=this.make(this.R,joins),old={geometry:o.geometry,parts:o.parts,stacking:o.stacking,[this.key]:o[this.key]};
    Object.assign(o,form);o.mesh.geometry=form.geometry;if(o.debug)o.debug.geometry=form.geometry;
    this.collision.prepared.delete(o);changes.push({o,old,form});
   }

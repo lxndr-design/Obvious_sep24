@@ -18,7 +18,12 @@ export class BirdColony {
   b.to=b.position.clone().addScaledVector(away,3.5).add(new THREE.Vector3(0,4.1,0));b.startOpacity=b.opacity;b.yaw=Math.atan2(-(b.to.z-b.from.z),b.to.x-b.from.x);
   this.quiet.set(b.pileId,this.time);this.nextArrival=Math.max(this.nextArrival,this.time+11);
  }
- bathPoint(site,angle,radius,y){return site.position.clone().add(new THREE.Vector3(Math.cos(angle)*radius,y,Math.sin(angle)*radius));}
+ bathPoint(site,angle,radius,y){
+  if(site.joins&&radius===site.rimRadius){
+   const sides=[{bit:1,x:-1,z:0},{bit:2,x:1,z:0},{bit:4,x:0,z:-1},{bit:8,x:0,z:1}].filter(s=>!(site.joins&s.bit));
+   if(sides.length){const side=sides[Math.floor((angle/(Math.PI*2)%1)*sides.length)],along=Math.sin(angle*3)*.4;return site.position.clone().add(new THREE.Vector3(side.x?side.x*.68:along,y,side.z?side.z*.68:along));}
+  }
+  return site.position.clone().add(new THREE.Vector3(Math.cos(angle)*radius,y,Math.sin(angle)*radius));}
  hop(b,target,nextState){b.state='hopping';b.age=0;b.from=b.position.clone();b.to=target;b.nextState=nextState;b.yaw=Math.atan2(-(target.z-b.from.z),target.x-b.from.x);}
  step(dt,sites,pointer=null,isClear=()=>true){
   this.time+=dt;if(pointer)this.disturb(pointer,sites);
@@ -61,7 +66,7 @@ export class BirdColony {
   this.birds=this.birds.filter(b=>b.state!=='departing'||b.age<2.5);
   if(this.time>=this.nextArrival&&this.birds.length<this.limit){
    const residents=site=>this.birds.filter(b=>b.pileId===site.id&&b.state!=='departing');
-   const candidates=sites.filter(p=>available(p)&&this.time-(this.quiet.get(p.id)??0)>6&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<3));
+   const candidates=sites.filter(p=>p.joins!==15&&available(p)&&this.time-(this.quiet.get(p.id)??0)>6&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<3));
    const preference=p=>residents(p).filter(settled).length+(p.kind==='bath'?2:0);
    candidates.sort((a,b)=>preference(b)-preference(a));
    // Try other habitats when the preferred site is crowded or obstructed.

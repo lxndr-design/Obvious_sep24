@@ -39,6 +39,9 @@ const wind=new WindField(),layout=new HoleLayout(),terrain=new HoleTerrain(scene
 physics=new CollisionScene(RAPIER);physics.objects=state.objects;const stacks=new StackScene(physics);
 const pendulums=new PendulumScene(RAPIER);
 const hedges=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.needsUpdate=true;});
+const baths=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.needsUpdate=true;},'birdbath');
+const joining=o=>o?.type==='hedge'?hedges:o?.type==='birdbath'?baths:null;
+function refreshJoins(){return hedges.refresh()&&baths.refresh();}
 const ecology=new Ecology(scene,pendulums,physics,wind,RAPIER);ecology.terrain=terrain;pendulums.beforeStep=dt=>ecology.beforeStep(dt);
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
@@ -71,7 +74,7 @@ function refreshHoles(){
  layout.set(state.holes.map(h=>({id:h.id,x:h.mesh.position.x,z:h.mesh.position.z,size:h.size})));
  terrain.rebuild(layout);physics.setTerrain(layout);pendulums.setTerrain(layout);renderer.shadowMap.needsUpdate=true;
  for(const o of state.objects)if(!o.hanging&&!o.support){const delta=new THREE.Vector3(0,physics.supportY(o,o.mesh.position.x,o.mesh.position.z)-o.mesh.position.y,0);const members=stacks.members(o);stacks.translate(members,delta);for(const member of members)pendulums.syncPose(member);}
- hedges.refresh();
+ refreshJoins();
  for(const item of ecology.strands){const visible=!layout.contains(item.strand.root.x,item.strand.root.z);item.mesh.visible=visible;if(item.head)item.head.visible=visible;}
  for(const o of ecology.loose){const p=o.body.translation();if(p.y<0&&!layout.contains(p.x,p.z)){o.body.setTranslation({x:p.x,y:.06,z:p.z},true);o.body.setLinvel({x:0,y:0,z:0},true);}}
 }
@@ -90,40 +93,40 @@ function addHole(position=null,size=2){
  const geometry=new THREE.BoxGeometry(size,.012,size),mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));geometry.computeBoundingBox();mesh.position.set(position[0],.006,position[1]);
  const o={id:++state.sequence,type:'pool',size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();return o;
 }
-function moveGround(o,target,dragging=false){const hedgeSnapshot=o.type==='hedge'?stacks.snapshot(o):null;if(hedgeSnapshot)hedges.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=dragging?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(hedgeSnapshot)hedges.refresh();return false;}if(hedgeSnapshot&&!hedges.refresh()){stacks.restore(hedgeSnapshot);hedges.refresh();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
+function moveGround(o,target,dragging=false){const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
 function addObject(type,position=null,hanging=false,cableLength=5){if(type==='pool')return addHole(position);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeForm(type,RAPIER);const mesh=new THREE.Mesh(form.geometry,white.clone());mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};mesh.userData.object=o;
  const y=hanging?8.5-cableLength-form.height/2:form.height/2;
  if(position){mesh.position.set(position[0],y,position[1]);if(!hanging)mesh.position.y=physics.supportY(o,position[0],position[1]);if(!physics.canPlace(o,mesh.position)){form.geometry.dispose();mesh.material.dispose();return null;}}
  else {let found=false;const centerX=Math.round(controls.target.x/GRID)*GRID,centerZ=Math.round(controls.target.z/GRID)*GRID;for(let z=centerZ+3.5;z>=centerZ-4.5&&!found;z-=GRID)for(let x=centerX-5.5;x<=centerX+5.5&&!found;x+=GRID){mesh.position.set(x,y,z);mesh.position.y=hanging?y:physics.supportY(o,x,z);if(physics.canPlace(o,mesh.position))found=true;}if(!found){form.geometry.dispose();mesh.material.dispose();notify('No clear floor space for this form.');return null;}}
- objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(form.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(type==='hedge'&&!hedges.refresh()){remove(o);notify('The hedge connection needs clear space.');return null;}return o;}
+ objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(form.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
 let noticeTimer;
 function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
-function select(o){state.selected=o;for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=o.type==='pool'?'Pool':LABELS[o.type];$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool';$('rotate').hidden=o.type==='pool'||o.type==='hedge';const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
+function select(o){state.selected=o;for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=o.type==='pool'?'Pool':LABELS[o.type];$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool';$('rotate').hidden=o.type==='pool'||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
 function setHang(o,hanging,length=o.cableLength){
  if(o.type==='pool')return false;
- if(o.type==='hedge')hedges.refresh(o);
+ if(joining(o))joining(o)?.refresh(o);
  if(hanging&&stacks.members(o).length>1){notify('Move the objects off the top before hanging this form.');select(o);return false;}
  const position=o.mesh.position.clone(),rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),new THREE.Euler().setFromQuaternion(o.mesh.quaternion,'YXZ').y);
- if(o.type==='hedge')rotation.identity();
+ if(joining(o))rotation.identity();
  const anchor=o.hanging?o.anchor.clone():new THREE.Vector3(Math.round(position.x/GRID)*GRID,CEILING_HEIGHT,Math.round(position.z/GRID)*GRID);
  position.x=hanging?anchor.x:Math.round(position.x/GRID)*GRID;position.z=hanging?anchor.z:Math.round(position.z/GRID)*GRID;
  position.y=hanging?CEILING_HEIGHT-length-o.height/2:physics.supportY(o,position.x,position.z,rotation);
- if(!physics.canTravel(o,position)||!physics.canPlace(o,position,rotation)){if(o.type==='hedge')hedges.refresh();notify('There is another form in the way. Move it clear first.');select(o);return false;}
+ if(!physics.canTravel(o,position)||!physics.canPlace(o,position,rotation)){if(joining(o))refreshJoins();notify('There is another form in the way. Move it clear first.');select(o);return false;}
  o.support=null;o.hanging=hanging;o.cableLength=length;o.anchor=hanging?anchor:null;o.mesh.position.copy(position);o.mesh.quaternion.copy(rotation);
- pendulums.rebuild(o);if(o.type==='hedge')hedges.refresh();updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
+ pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o){
  if(!o)return;presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
- o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);hedges.refresh();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
+ o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
 function reset(){cancelDrag();for(const o of [...state.objects,...state.holes])remove(o);state.sequence=0;addHole([0,0],2);addObject('arch',[0,-3]);addObject('fountain',[0,3]);addObject('bench',[-3,0]);select(null);terrain.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
 function hitWater(bath=null,solids=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false)){
- const basin=hitBathWater(raycaster,bath?[bath]:ecology.bathViews.values(),solids);if(bath)return basin;
+ const basin=hitBathWater(raycaster,bath?[...ecology.bathViews.values()].filter(v=>v.field===bath.field):ecology.bathViews.values(),solids);if(bath)return basin;
  const hit=raycaster.intersectObjects(terrain.views.map(v=>v.mesh),false)[0];
  return basin&&(!hit||basin.distance<hit.distance)?basin:hit?{point:hit.point,view:hit.object.userData.waterView,distance:hit.distance}:null;
 }
@@ -154,7 +157,7 @@ canvas.addEventListener('pointerdown',event=>{
   select(null);const seed=picked.seed;plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0,1,0),seed.mesh.position);if(!raycaster.ray.intersectPlane(plane,point))return;
   sling.begin(seed);state.drag={mode:'seed',id:event.pointerId,offset:seed.mesh.position.clone().sub(point)};slingGuide.update(sling);controls.enabled=false;canvas.setPointerCapture(event.pointerId);canvas.style.cursor='grabbing';notify('Pull back · release to launch · Esc to cancel');
  }else if(picked?.object){
-  const o=picked.object,mode=picked.mode;if(o.type==='hedge'&&mode==='floor')hedges.refresh(o);select(o);
+  const o=picked.object,mode=picked.mode;if(joining(o)&&mode==='floor')joining(o)?.refresh(o);select(o);
   if(mode==='pull')plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),picked.hit);
   else plane.set(new THREE.Vector3(0,1,0),-(mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y));
   if(!raycaster.ray.intersectPlane(plane,point))return;
@@ -169,7 +172,7 @@ canvas.addEventListener('pointerdown',event=>{
 canvas.addEventListener('pointermove',event=>{
  ray(event);trackPointer(event);if(!state.drag){const hit=pick();canvas.style.cursor=hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
  if(state.drag.id!==event.pointerId)return;
- if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&state.drag.view===p.view){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
+ if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&(state.drag.view===p.view||state.drag.view?.field===p.view.field)){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
  if(!raycaster.ray.intersectPlane(plane,point))return;
  const {object:o,mode}=state.drag,target=point.clone().add(state.drag.offset);
  if(mode==='seed'){sling.aim(target);slingGuide.update(sling);return;}
@@ -195,9 +198,9 @@ function endDrag(e,cancel=false){
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
  if(mode==='pull'){pendulums.releasePull();notify('Released · gravity takes over');}
  if(mode==='anchor'){pendulums.endAnchor(object);notify('Anchor placed · pull the hanging form to swing');}
- dragGhost.end();state.drag=null;if(object?.type==='hedge')hedges.refresh();gridCursor.visible=false;controls.enabled=true;canvas.style.cursor='default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+ dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=true;canvas.style.cursor='default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
 }
-function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(drag.object.type==='hedge')hedges.refresh();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
+function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',cancelDrag);canvas.addEventListener('lostpointercapture',cancelDrag);window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
 function placeForm(o,x,z){
  const target=new THREE.Vector3(Math.round(x/GRID)*GRID,o.hanging?CEILING_HEIGHT:o.mesh.position.y,Math.round(z/GRID)*GRID);
@@ -210,7 +213,7 @@ canvas.addEventListener('keydown',e=>{
  if(dirs[e.key]){e.preventDefault();const [x,z]=dirs[e.key],p=o.hanging?o.anchor:o.mesh.position;if(!placeForm(o,p.x+x,p.z+z))notify('Occupied — choose a clear path');}
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
 });
-function rotateSelected(){const o=state.selected;if(!o||o.type==='pool'||o.type==='hedge')return;if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{for(const member of stacks.members(o))pendulums.syncPose(member);notify('Rotated 90°');}updateCable(o);select(o);}
+function rotateSelected(){const o=state.selected;if(!o||o.type==='pool'||!!joining(o))return;if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{for(const member of stacks.members(o))pendulums.syncPose(member);notify('Rotated 90°');}updateCable(o);select(o);}
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${LABELS[o.type]} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
 function openPicker(family){

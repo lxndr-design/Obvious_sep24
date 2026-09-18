@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {makeBirdbath,FOUNTAIN} from './bath-shapes.js';
+export {BATH,FOUNTAIN} from './bath-shapes.js';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -6,13 +8,14 @@ export const PLANTS={snake:'Snake plant',rubber:'Rubber plant',succulent:'Succul
 export const PLANT_SIZES={small:.65,medium:1,large:1.5};
 export const TABLE_SIZES={half:.5,full:1};
 export const FURNISHING_LABELS={bench:'Park bench',birdbath:'Bird bath',fountain:'Fountain'};
-export const BATH={height:1.53,waterY:1.43,waterRadius:.57,rimRadius:.69};
+
 for(const [plant,label] of Object.entries(PLANTS))for(const size of Object.keys(PLANT_SIZES))FURNISHING_LABELS[`plant-${plant}-${size}`]=`${label} · ${size}`;
 for(const shape of ['round','square'])for(const size of Object.keys(TABLE_SIZES))FURNISHING_LABELS[`table-${shape}-${size}`]=`${shape==='round'?'Round':'Square'} table · ${size==='half'?'½':'1/1'}`;
 
 // Bake each component's transform into both its visible mesh and convex collider.
 // In particular, never wrap foliage or the empty space under a table in one hull.
 export function makeFurnishing(type,R){
+ if(type==='birdbath')return makeBirdbath(R);
  const [family,kind,size]=type.split('-');
  if(!Object.hasOwn(FURNISHING_LABELS,type))throw Error('Unknown furnishing');
  const scale=family==='plant'?PLANT_SIZES[size]:family==='table'?TABLE_SIZES[size]:1;
@@ -54,7 +57,7 @@ export function makeFurnishing(type,R){
   // Hollow bowl: each wall wedge is convex, with no hull spanning the basin.
   for(let i=0;i<48;i++){
    const points=[];
-   for(const a of [i*Math.PI/24,(i+1)*Math.PI/24])for(const [r,y] of [[.66,1.32],[.76,BATH.height],[.62,BATH.height],[.53,1.32]])points.push(v(Math.cos(a)*r,y,Math.sin(a)*r));
+   for(const a of [i*Math.PI/24,(i+1)*Math.PI/24])for(const [r,y] of [[.66,1.32],[.76,FOUNTAIN.height],[.62,FOUNTAIN.height],[.53,1.32]])points.push(v(Math.cos(a)*r,y,Math.sin(a)*r));
    add(new ConvexGeometry(points));
   }
  }else if(family==='table'){

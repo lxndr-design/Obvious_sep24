@@ -35,9 +35,9 @@ test('moving, removing or obstructing the bath makes its visitors depart',()=>{
 test('the bath basin is hollow and bench slats and supports preserve open spaces',()=>{
  const collision=new CollisionScene(R),geometry=new THREE.SphereGeometry(.02);geometry.computeBoundingBox();const probe={geometry,parts:[{shape:new R.Ball(.02),offset:new THREE.Vector3()}],mesh:new THREE.Mesh()};
  const bath=form('birdbath');collision.objects=[bath,probe];
- assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,1.43,2)),true,'inside bowl');
- assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,1.25,2)),false,'basin floor');
- assert.equal(collision.canPlace(probe,new THREE.Vector3(-8+.7,1.47,2)),false,'basin wall');
+ assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,BATH.waterY,2)),true,'inside bowl');
+ assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,.96,2)),false,'basin floor');
+ assert.equal(collision.canPlace(probe,new THREE.Vector3(-8+.7,1.14,2)),false,'basin wall');
  const bench=form('bench');collision.objects=[bench,probe];
  assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,.48,2)),true,'under seat');
  assert.equal(collision.canPlace(probe,new THREE.Vector3(-8,.72,2-.265)),false,'seat slat');
@@ -76,7 +76,7 @@ test('basin water receives pointer hits while the rim, pedestal, covering forms 
  assert.equal(aim(new THREE.Vector3(-8,5,2),center)?.view,view,'water beats the basin floor beneath it');
  assert.equal(aim(new THREE.Vector3(-7.3,5,2),new THREE.Vector3(-7.3,1.5,2)),null,'solid rim stays draggable');
  assert.equal(aim(new THREE.Vector3(-8,.7,5),new THREE.Vector3(-8,.7,2)),null,'pedestal stays draggable');
- assert.equal(aim(new THREE.Vector3(-8,1.6,5),center),null,'front rim occludes the water at a shallow angle');
+ assert.equal(aim(new THREE.Vector3(-8,BATH.waterY+.15,5),center),null,'front rim occludes the water at a shallow angle');
  const cover=new THREE.Mesh(new THREE.BoxGeometry(.4,.4,.4));cover.position.set(-8,2,2);cover.updateMatrixWorld(true);
  assert.equal(aim(new THREE.Vector3(-8,5,2),center,[bath.mesh,cover]),null,'another form in front keeps its drag target');
  view.group.visible=false;assert.equal(aim(new THREE.Vector3(-8,5,2),center),null);view.group.visible=true;bath.hanging=true;assert.equal(aim(new THREE.Vector3(-8,5,2),center),null);view.dispose();

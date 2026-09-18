@@ -1,10 +1,11 @@
+import {bathDimensions} from './bath-shapes.js';
 import * as THREE from 'three';
 import {bladeGeometry,flowerHead,birdMesh,seedForm,BIRD_PALETTES} from './nature-shapes.js';
 import {GrassStrand,makeGrassCollider,prepareGrassColliders} from './grass.js';
 import {BirdColony,seededRandom} from './birds.js';
 import {inWater} from './terrain.js';
 import {BATH} from './furnishings.js';
-import {BathWater} from './birdbath.js';
+import {BathWater,bathWaterContexts} from './birdbath.js';
 const UP=new THREE.Vector3(0,1,0),IDENTITY={x:0,y:0,z:0,w:1};
 const smooth=t=>Math.max(0,Math.min(1,t));
 function leafGeometry(scale=1){
@@ -77,15 +78,17 @@ export class Ecology {
  syncBaths(){
   const objects=this.collision.objects.filter(o=>(o.type==='birdbath'||o.type==='fountain'));
   for(const [o,view]of this.bathViews)if(!objects.includes(o)){view.dispose();this.bathViews.delete(o);}
-  const baths=[];
+  const baths=[],contexts=bathWaterContexts(objects,this.bathViews);
   for(const o of objects){
    let view=this.bathViews.get(o);
-   if(!view){view=new BathWater(o);this.bathViews.set(o,view);view.lastPosition=o.mesh.position.clone();view.lastRotation=o.mesh.quaternion.clone();this.colony.quiet.set(`bath-${o.id}`,this.colony.time);}
+   if(view&&view.context!==contexts.get(o)){view.dispose();this.bathViews.delete(o);view=null;for(const bird of this.colony.birds)if(bird.pileId===`bath-${o.id}`)this.colony.depart(bird,this.pointer);}
+   if(!view){view=new BathWater(o,contexts.get(o));this.bathViews.set(o,view);view.lastPosition=o.mesh.position.clone();view.lastRotation=o.mesh.quaternion.clone();this.colony.quiet.set(`bath-${o.id}`,this.colony.time);}
    const active=!o.hanging&&new THREE.Vector3(0,1,0).applyQuaternion(o.mesh.quaternion).y>.98;
    const moved=o.mesh.position.distanceTo(view.lastPosition)>.001||o.mesh.quaternion.angleTo(view.lastRotation)>.001;
    if(moved||!active){for(const bird of this.colony.birds)if(bird.pileId===`bath-${o.id}`)this.colony.depart(bird,this.pointer);this.colony.quiet.set(`bath-${o.id}`,this.colony.time);view.reset();}
    view.lastPosition.copy(o.mesh.position);view.lastRotation.copy(o.mesh.quaternion);view.group.visible=active;
-   if(active)baths.push({id:`bath-${o.id}`,kind:'bath',object:o,position:new THREE.Vector3(o.mesh.position.x,o.mesh.position.y-o.height/2,o.mesh.position.z),rimY:BATH.height,waterY:BATH.waterY,rimRadius:BATH.rimRadius});
+   const dimensions=bathDimensions(o);
+   if(active)baths.push({id:`bath-${o.id}`,kind:'bath',object:o,position:new THREE.Vector3(o.mesh.position.x,o.mesh.position.y-o.height/2,o.mesh.position.z),rimY:dimensions.height,waterY:dimensions.waterY,rimRadius:dimensions.rimRadius,joins:o.bathJoins??0});
   }
   this.habitats=[...this.piles,...baths];
  }
@@ -110,7 +113,7 @@ export class Ecology {
    this.colony.step(1/60,this.habitats,this.pointer,(p,site)=>this.clearSpot(p,site));this.accumulator-=1/60;steps++;
   }
   if(steps)for(const item of this.strands)this.updateBlade(item);
-  for(const [o,view]of this.bathViews)if(view.group.visible)view.update(delta,this.wind.sample(o.mesh.position.x,o.mesh.position.z));
+  const steppedFields=new Set();for(const [o,view]of this.bathViews)if(view.group.visible){view.update(delta,this.wind.sample(o.mesh.position.x,o.mesh.position.z),!steppedFields.has(view.field));steppedFields.add(view.field);}
   // Screen-space proximity also scares birds in midair, not just birds beneath the ground ray.
   if(camera&&this.pointerScreen)for(const bird of this.colony.birds){const projected=bird.position.clone().project(camera),x=(projected.x+1)*width/2,y=(1-projected.y)*height/2;if(Math.hypot(x-this.pointerScreen.x,y-this.pointerScreen.y)<60)this.colony.depart(bird,this.pointer);}
   for(const [id,view]of this.birdViews)if(!this.colony.birds.some(b=>b.id===id)){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();this.birdViews.delete(id);}
