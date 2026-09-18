@@ -32,15 +32,15 @@ export class Ecology {
   for(const [x,z] of patches){
    const cluster={root:new THREE.Vector3(x,.005,z),blades:[]},count=2+Math.floor(random()*6),height=.65+random()*.35;
    for(let i=0;i<count;i++){
-    const angle=i/count*Math.PI*2+(random()-.5)*.5,radius=.035+random()*.085;
-    cluster.blades.push(this.addStrand(x+Math.cos(angle)*radius,z+Math.sin(angle)*radius,height*(.65+random()*.35),null,random));
+    const angle=i/count*Math.PI*2+(random()-.5)*.5,radius=.008+random()*.022;
+    cluster.blades.push(this.addStrand(x+Math.cos(angle)*radius,z+Math.sin(angle)*radius,height*(.65+random()*.35),null,random,new THREE.Vector3(Math.cos(angle),0,Math.sin(angle)).multiplyScalar(.15+random()*.13)));
    }
    this.grassClusters.push(cluster);
   }
   this.addStrand(-2.1,4.4,.65,'daisy');this.addStrand(6.2,.8,.58,'dandelion');this.addStrand(-5.7,-3,.55,'daisy');
  }
- addStrand(x,z,height,flower=null,random=this.random){
-  const angle=random()*Math.PI*2,strand=new GrassStrand(new THREE.Vector3(x,.005,z),height,new THREE.Vector3(Math.cos(angle)*.08,0,Math.sin(angle)*.08),4);strand.radius=.01;
+ addStrand(x,z,height,flower=null,random=this.random,lean=null){
+  const angle=random()*Math.PI*2,strand=new GrassStrand(new THREE.Vector3(x,.005,z),height,lean??new THREE.Vector3(Math.cos(angle)*.08,0,Math.sin(angle)*.08),4);strand.radius=.01;
   const geometry=bladeGeometry(strand.nodes.length),mesh=new THREE.Mesh(geometry,this.material);mesh.castShadow=true;mesh.receiveShadow=true;mesh.frustumCulled=false;
   const head=flower?flowerHead(flower,this.material):null;strand.tipRadius=flower==='daisy'?.085:flower==='dandelion'?.075:.01;if(head)this.group.add(head);this.group.add(mesh);const item={strand,mesh,head,angle,width:flower ? .006 : .012};this.strands.push(item);return item;
  }

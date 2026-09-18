@@ -30,8 +30,9 @@ test('complete meadow initializes render geometry, simulates loose matter, and k
  for(const cluster of e.grassClusters){
   assert.ok(cluster.blades.length>=2&&cluster.blades.length<=7);
   for(const blade of cluster.blades){
-   assert.ok(blade.strand.root.distanceTo(cluster.root)<=.12,'roots stay in a sparse, compact cluster');
+   assert.ok(blade.strand.root.distanceTo(cluster.root)<=.031,'roots share a tight cluster');
    assert.equal(blade.strand.nodes.length,4,'each blade retains its simple geometry and physics');
+   const tip=blade.strand.rest.at(-1),root=blade.strand.root;assert.ok(Math.hypot(tip.x-root.x,tip.z-root.z)>=.15,'blades fan outward from their tight roots');
   }
  }
  assert.equal(e.loose.filter(o=>o.type==='leaf').length,16);assert.equal(e.loose.filter(o=>o.type==='seed').length,3);
