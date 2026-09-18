@@ -1,4 +1,5 @@
 import './style.css';
+import {applySceneTheme} from './theme.js';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -225,6 +226,9 @@ $('picker-form').addEventListener('submit',event=>{
  const o=addObject(type);if(o){$('object-picker').close();select(o);notify(`${LABELS[type]} added · drag it into place`);canvas.focus({preventScroll:true});}
  else $('picker-hint').textContent='No clear space here. Close this picker, pan to an open area, or remove a form and try again.';
 });
+function updateTheme(){applySceneTheme(document.documentElement,{ink:$('ink-color').value,paper:$('paper-color').value,strength:+$('light-strength').value/100,dither:+$('dither').value});}
+for(const id of ['ink-color','paper-color','light-strength','dither'])$(id).addEventListener('input',updateTheme);
+updateTheme();
 for(const [id,uniform] of [['ink-color','inkColor'],['paper-color','paperColor']]){
  const updateColor=()=>{const hex=parseInt($(id).value.slice(1),16);dither.uniforms[uniform].value.set(((hex>>16)&255)/255,((hex>>8)&255)/255,(hex&255)/255);};
  $(id).addEventListener('input',updateColor);updateColor();
