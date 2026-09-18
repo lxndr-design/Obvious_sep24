@@ -14,7 +14,7 @@ test('nature silhouettes remain small and within their low-polygon budgets',()=>
  const ribbon=bladeGeometry(4);assert.ok(triangles(ribbon)<=6);
  const material=new THREE.MeshStandardMaterial({color:0xffffff,side:THREE.DoubleSide});
  for(const kind of ['daisy','dandelion']){const head=flowerHead(kind,material);assert.ok(totalTriangles(head)<=30);const size=new THREE.Box3().setFromObject(head).getSize(new THREE.Vector3());assert.ok(Math.max(size.x,size.z)<.18);}
- const bird=birdMesh();assert.ok(totalTriangles(bird.group)<60);assert.ok(new THREE.Box3().setFromObject(bird.group).getSize(new THREE.Vector3()).x<.37);assert.equal(bird.wings.length,2);for(const m of bird.materials)assert.equal(m.color.getHex(),0xffffff);
+ const bird=birdMesh();assert.ok(totalTriangles(bird.group)<84);assert.ok(new THREE.Box3().setFromObject(bird.group).getSize(new THREE.Vector3()).x<.37);assert.equal(bird.wings.length,2);for(const m of bird.materials.slice(0,3))assert.equal(m.color.getHex(),0xffffff);assert.equal(bird.materials[3].color.getHex(),0x171c21);
  const seed=seedForm(R);assert.ok(triangles(seed.geometry)<=80);seed.geometry.computeBoundingSphere();assert.ok(seed.geometry.boundingSphere.radius<.12);assert.equal(seed.parts.length,9);
 });
 test('small scattered leaves have clear gaps and all nature surfaces use pure white',()=>{

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
+import {stackingProfile} from './stacking.js';
 import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
 export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',...FURNISHING_LABELS};
 export function makeForm(type,R){
- if(Object.hasOwn(FURNISHING_LABELS,type))return makeFurnishing(type,R);
+ if(Object.hasOwn(FURNISHING_LABELS,type)){const form=makeFurnishing(type,R);return {...form,stacking:stackingProfile(type,form)};}
  let geometry,parts=[],height;
  if(type==='box'){height=1.35;geometry=new THREE.BoxGeometry(1.35,height,1.35);parts=[{shape:new R.Cuboid(.675,.675,.675)}];}
  else if(type==='sphere'){height=1.5;geometry=new THREE.SphereGeometry(.75,48,32);parts=[{shape:new R.Ball(.75)}];}
@@ -21,5 +22,5 @@ export function makeForm(type,R){
   const points=[];for(let i=0;i<65;i++){const y=1-2*(i+.5)/65,a=i*2.399963;const r=Math.sqrt(1-y*y);const f=1+.13*Math.sin(a*3+y*4)+.08*Math.cos(a*2-y*3);points.push(new THREE.Vector3(Math.cos(a)*r*f*.85,y*f*.82,Math.sin(a)*r*f*.72));}
   geometry=new ConvexGeometry(points);geometry.computeBoundingBox();height=geometry.boundingBox.max.y-geometry.boundingBox.min.y;geometry.translate(0,-(geometry.boundingBox.min.y+geometry.boundingBox.max.y)/2,0);parts=[{shape:new R.ConvexPolyhedron(new Float32Array(geometry.attributes.position.array))}];
  }else throw Error('Unknown form');
- geometry.computeBoundingBox();return {geometry,parts:parts.map(p=>({...p,offset:p.offset||new THREE.Vector3()})),height};
+ geometry.computeBoundingBox();const form={geometry,parts:parts.map(p=>({...p,offset:p.offset||new THREE.Vector3()})),height};return {...form,stacking:stackingProfile(type,form)};
 }

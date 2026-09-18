@@ -15,7 +15,7 @@ export class BathWater {
   const indices=this.geometry.index.array,clipped=[];
   for(let i=0;i<indices.length;i+=3)if(mask[indices[i]]&&mask[indices[i+1]]&&mask[indices[i+2]])clipped.push(indices[i],indices[i+1],indices[i+2]);
   this.geometry.setIndex(clipped);this.geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),BATH.waterRadius+.1);
-  this.material=new THREE.MeshPhongMaterial({color:0x8c8c8c,specular:0xffffff,shininess:100,transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
+  this.material=new THREE.MeshPhongMaterial({color:0x626262,specular:0xbcbcbc,shininess:45,transparent:true,opacity:.72,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   this.mesh=new THREE.Mesh(this.geometry,this.material);this.mesh.receiveShadow=true;this.group.add(this.mesh);
   this.spray=new THREE.InstancedMesh(new THREE.SphereGeometry(.014,6,4),this.material,48);this.spray.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.spray.frustumCulled=false;this.group.add(this.spray);
   this.drops=[];this.cursor=0;this.transform=new THREE.Object3D();this.splashCount=0;this.update(0,new THREE.Vector3());

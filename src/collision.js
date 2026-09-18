@@ -14,7 +14,7 @@ export class CollisionScene {
   const parts=prepareParts(object,position,quaternion),bounds=new THREE.Box3();for(const part of parts)bounds.union(part.bounds);
   const result={parts,bounds,position:position.clone(),rotation:quaternion.clone()};this.prepared.set(object,result);return result;
  }
- neighbors(object,bounds){const found=[];for(const other of this.objects){if(other===object)continue;
+ neighbors(object,bounds,ignore){const found=[];for(const other of this.objects){if(other===object||ignore?.has(other))continue;
   // Whole-object bounds avoid preparing distant compound shapes at all.
   if(!this.bounds(other,other.mesh.position).expandByScalar(.001).intersectsBox(bounds))continue;
   const prepared=this.partsAt(other);for(const part of prepared.parts)if(part.bounds.intersectsBox(bounds))found.push(part);
@@ -28,23 +28,24 @@ export class CollisionScene {
   for(const a of prepared.parts){const swept=sweptBounds(a.bounds,velocity);for(const t of nearby){if(!swept.intersectsBox(t.bounds))continue;const hit=a.shape.castShape(a.position,a.rotation,velocity,t.shape,t.position,identity,zero,0,fraction,false);if(hit)fraction=Math.min(fraction,hit.time_of_impact);}}
   return from.y-3*fraction;
  }
- canPlace(object,position,quaternion=object.mesh.quaternion){
+ canPlace(object,position,quaternion=object.mesh.quaternion,ignore){
   if(!position.toArray().every(Number.isFinite))return false;
   const prepared=this.partsAt(object,position,quaternion),bounds=prepared.bounds;if(bounds.min.y<-.711)return false;
-  const nearby=this.terrainNear(bounds),others=this.neighbors(object,bounds);
+  const nearby=this.terrainNear(bounds),others=this.neighbors(object,bounds,ignore);
   for(const a of prepared.parts){
    for(const t of nearby){if(!a.bounds.intersectsBox(t.bounds))continue;const c=a.shape.contactShape(a.position,a.rotation,t.shape,t.position,identity,0);if(c&&c.distance<-.001)return false;}
    for(const b of others){if(!a.bounds.intersectsBox(b.bounds))continue;const c=a.shape.contactShape(a.position,a.rotation,b.shape,b.position,b.rotation,0);if(c&&c.distance<-.001)return false;}
   }return true;
  }
- castFraction(object,from,to){
+ castFraction(object,from,to,ignore){
   const velocity=to.clone().sub(from);if(velocity.lengthSq()<1e-12)return 1;let fraction=1;
   const prepared=this.partsAt(object,from),swept=sweptBounds(prepared.bounds,velocity);
-  const nearby=this.terrainNear(swept).filter(t=>swept.min.y<t.top-.001),others=this.neighbors(object,swept);
+  const nearby=this.terrainNear(swept).filter(t=>swept.min.y<t.top-.001),others=this.neighbors(object,swept,ignore);
   for(const a of prepared.parts){const path=sweptBounds(a.bounds,velocity);
    const test=(shape,pos,rot)=>{const hit=a.shape.castShape(a.position,a.rotation,velocity,shape,pos,rot,zero,0,fraction,false);if(hit)fraction=Math.min(fraction,hit.time_of_impact);};
    for(const t of nearby)if(path.intersectsBox(t.bounds))test(t.shape,t.position,identity);
-   for(const b of others)if(path.intersectsBox(b.bounds))test(b.shape,b.position,b.rotation);
+   // Resting contacts can report time zero from float rounding, even moving away.
+   for(const b of others)if(path.intersectsBox(b.bounds)&&!(velocity.y>=0&&a.bounds.min.y>=b.bounds.max.y-.001))test(b.shape,b.position,b.rotation);
   }return fraction;
  }
  canTravel(object,to){return this.canPlace(object,to)&&this.castFraction(object,object.mesh.position,to)>=.9999;}

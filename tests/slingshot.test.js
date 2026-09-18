@@ -19,6 +19,6 @@ test('pullback launches in the opposite direction, scales with distance, and has
 test('cancel and a tap restore the seed without an accidental launch',()=>{
  const {p,seed,sling}=setup(),pos={...seed.body.translation()},vel={...seed.body.linvel()};sling.begin(seed);sling.aim(new THREE.Vector3(pos.x+2,pos.y,pos.z));for(let i=0;i<60;i++)p.step(1/120);assert.deepEqual({...seed.body.translation()},pos);sling.cancel();assert.deepEqual({...seed.body.translation()},pos);assert.deepEqual({...seed.body.linvel()},vel);assert.ok(seed.body.isDynamic());sling.begin(seed);assert.equal(sling.release(),false);assert.deepEqual({...seed.body.linvel()},vel);p.dispose();
 });
-test('birds use distinct body and wing palettes without adding geometry',()=>{
- assert.equal(new Set(BIRD_PALETTES.map(p=>p.body)).size,5);for(const palette of BIRD_PALETTES){const view=birdMesh(palette);assert.equal(view.materials[0].color.getHex(),palette.body);assert.equal(view.materials[1].color.getHex(),palette.wing);assert.ok(view.materials.every(m=>m.transparent&&m.opacity===0));let triangles=0;view.group.traverse(o=>{if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;});assert.ok(triangles<60);}
+test('birds use distinct body and wing palettes with small, fading eyes',()=>{
+ assert.equal(new Set(BIRD_PALETTES.map(p=>p.body)).size,5);for(const palette of BIRD_PALETTES){const view=birdMesh(palette);assert.equal(view.materials[0].color.getHex(),palette.body);assert.equal(view.materials[1].color.getHex(),palette.wing);assert.ok(view.materials.every(m=>m.transparent&&m.opacity===0));let triangles=0;view.group.traverse(o=>{if(o.isMesh)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;});assert.ok(triangles<84);}
 });

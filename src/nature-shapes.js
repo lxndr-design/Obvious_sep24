@@ -37,6 +37,13 @@ export function birdMesh(palette=null){
  outline.moveTo(...points[0]);for(const p of points.slice(1))outline.lineTo(...p);outline.closePath();
  const geometry=new THREE.ExtrudeGeometry(outline,{depth:.046,bevelEnabled:false,curveSegments:1,steps:1});geometry.translate(0,0,-.023);
  const mesh=new THREE.Mesh(geometry,material);mesh.castShadow=true;mesh.receiveShadow=true;body.add(mesh);
+ // Two small eyes follow the head when it pecks and fade with the bird.
+ const eyeMaterial=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0});
+ const pupilMaterial=new THREE.MeshBasicMaterial({color:0x171c21,transparent:true,opacity:0});
+ for(const sign of [1,-1]){
+  const eye=new THREE.Mesh(new THREE.CircleGeometry(.009,6),eyeMaterial);eye.position.set(.078,.080,sign*.0235);eye.rotation.y=sign===1?0:Math.PI;body.add(eye);
+  const pupil=new THREE.Mesh(new THREE.CircleGeometry(.0048,6),pupilMaterial);pupil.position.set(.080,.080,sign*.024);pupil.rotation.y=eye.rotation.y;body.add(pupil);
+ }
  const wings=[];
  for(const sign of [1,-1]){
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute([.045,0,0,-.09,.006,sign*.025,-.13,.012,sign*.09,-.005,.01,sign*.065],3));g.setIndex([0,1,2,0,2,3]);g.computeVertexNormals();
@@ -44,7 +51,7 @@ export function birdMesh(palette=null){
  }
  const feet=new THREE.BufferGeometry();feet.setAttribute('position',new THREE.Float32BufferAttribute([.019,-.08,.015,.029,-.08,.015,.032,-.015,.015,.019,-.08,-.015,.029,-.08,-.015,.032,-.015,-.015],3));feet.computeVertexNormals();
  const legs=new THREE.Mesh(feet,material);legs.castShadow=true;group.add(legs);
- return {group,body,wings,materials:[material,wingMaterial]};
+ return {group,body,wings,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};
 }
 export function seedForm(R){
  const geometries=[],parts=[];
