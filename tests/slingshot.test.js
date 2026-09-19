@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import R from '@dimforge/rapier3d-compat';
-import {SeedSlingshot,SlingGuide,launchVelocity,MAX_PULL} from '../src/slingshot.js';
+import {SeedSlingshot,SlingGuide,launchVelocity,MAX_PULL,GUIDE_Y} from '../src/slingshot.js';
 import {Ecology} from '../src/ecology.js';
 import {PendulumScene} from '../src/pendulums.js';
 import {CollisionScene} from '../src/collision.js';
@@ -13,7 +13,7 @@ function setup(){const p=new PendulumScene(R),wind=new WindField();wind.strength
 test('pullback launches in the opposite direction, scales with distance, and has a bounded maximum',()=>{
  assert.deepEqual(launchVelocity(new THREE.Vector3(.01,0,0)).toArray(),[0,0,0]);
  const a=launchVelocity(new THREE.Vector3(1,0,0)),b=launchVelocity(new THREE.Vector3(2,0,0));assert.ok(a.x<0&&a.y>0);assert.ok(b.length()>a.length());assert.equal(launchVelocity(new THREE.Vector3(100,0,0)).x,-4.5*MAX_PULL);
- const {p,seed,sling}=setup(),start={...seed.body.translation()};sling.begin(seed);sling.aim(new THREE.Vector3(start.x+1.2,start.y,start.z+.6));const guide=new SlingGuide(new THREE.Scene());guide.update(sling);assert.ok(guide.group.visible&&guide.arrow.visible);assert.ok(sling.release());guide.update(sling);assert.equal(guide.group.visible,false);
+ const {p,seed,sling}=setup(),start={...seed.body.translation()};sling.begin(seed);sling.aim(new THREE.Vector3(start.x+1.2,start.y,start.z+.6));const guide=new SlingGuide(new THREE.Scene());guide.update(sling);assert.ok(guide.group.visible&&guide.arrow.visible);const line=guide.line.geometry.attributes.position;assert.ok(Math.abs(line.getY(0)-GUIDE_Y)<1e-7&&Math.abs(line.getY(1)-GUIDE_Y)<1e-7);assert.equal(guide.ring.position.y,GUIDE_Y);assert.equal(guide.arrow.position.y,GUIDE_Y);assert.ok(Math.abs(new THREE.Vector3(0,1,0).applyQuaternion(guide.arrow.quaternion).y)<1e-7,'aim arrow stays parallel to ground while the actual launch arcs upward');assert.ok(sling.release());guide.update(sling);assert.equal(guide.group.visible,false);
  for(let i=0;i<25;i++)p.step(1/120);const end=seed.body.translation();assert.ok(end.x<start.x-.5&&end.z<start.z-.2&&end.y>start.y+.1);assert.ok(seed.body.isDynamic());p.dispose();
 });
 test('cancel and a tap restore the seed without an accidental launch',()=>{

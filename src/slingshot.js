@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 export const MAX_PULL=2.5;
+export const GUIDE_Y=.015;
 export function launchVelocity(pull){const p=pull.clone();p.y=0;p.clampLength(0,MAX_PULL);const strength=p.length();return strength<.08?new THREE.Vector3():new THREE.Vector3(-p.x*4.5,strength*1.8,-p.z*4.5);}
 export class SeedSlingshot {
  constructor(R){this.R=R;this.active=null;this.pull=new THREE.Vector3();}
@@ -10,5 +11,5 @@ export class SeedSlingshot {
 }
 export class SlingGuide {
  constructor(scene){this.group=new THREE.Group();scene.add(this.group);const material=new THREE.LineDashedMaterial({color:0x52684c,dashSize:.10,gapSize:.07,depthTest:false,transparent:true,opacity:.85});this.line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3()]),material);this.arrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(),0,0x52684c,.16,.09);this.ring=new THREE.Mesh(new THREE.RingGeometry(.13,.15,24),new THREE.MeshBasicMaterial({color:0x52684c,side:THREE.DoubleSide,depthTest:false,transparent:true,opacity:.8}));this.ring.rotation.x=-Math.PI/2;this.group.add(this.line,this.arrow,this.ring);this.group.traverse(o=>{o.renderOrder=20;});this.group.visible=false;}
- update(sling){this.group.visible=!!sling.active;if(!sling.active)return;const start=new THREE.Vector3().copy(sling.active.position);start.y+=.08;this.ring.position.copy(start);const end=start.clone().add(sling.pull),a=this.line.geometry.attributes.position;a.setXYZ(0,...start);a.setXYZ(1,...end);a.needsUpdate=true;this.line.geometry.computeBoundingSphere();this.line.computeLineDistances();const velocity=launchVelocity(sling.pull);this.arrow.visible=velocity.lengthSq()>0;if(this.arrow.visible){this.arrow.position.copy(start);this.arrow.setDirection(velocity.normalize());this.arrow.setLength(sling.pull.length()*1.2+.2,.16,.09);}}
+ update(sling){this.group.visible=!!sling.active;if(!sling.active)return;const start=new THREE.Vector3().copy(sling.active.position);start.y=GUIDE_Y;this.ring.position.copy(start);const end=start.clone().add(sling.pull),a=this.line.geometry.attributes.position;a.setXYZ(0,...start);a.setXYZ(1,...end);a.needsUpdate=true;this.line.geometry.computeBoundingSphere();this.line.computeLineDistances();const velocity=launchVelocity(sling.pull);this.arrow.visible=velocity.lengthSq()>0;if(this.arrow.visible){this.arrow.position.copy(start);velocity.y=0;this.arrow.setDirection(velocity.normalize());this.arrow.setLength(sling.pull.length()*1.2+.2,.16,.09);}}
 }

@@ -185,7 +185,7 @@ canvas.addEventListener('pointerdown',event=>{
  if(state.mouseMode==='seed'){const p=seedDropPoint();if(p)ecology.scatterFood(p);state.drag={mode:'feed',id:event.pointerId,last:performance.now(),lastPoint:p?.clone()};canvas.setPointerCapture(event.pointerId);controls.enabled=false;return;}
  if(picked?.locked)return;
  if(picked?.seed){
-  select(null);const seed=picked.seed;plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0,1,0),seed.mesh.position);if(!raycaster.ray.intersectPlane(plane,point))return;
+  select(null);const seed=picked.seed;plane.set(new THREE.Vector3(0,1,0),0);if(!raycaster.ray.intersectPlane(plane,point))return;
   sling.begin(seed);state.drag={mode:'seed',id:event.pointerId,offset:seed.mesh.position.clone().sub(point)};slingGuide.update(sling);controls.enabled=false;canvas.setPointerCapture(event.pointerId);canvas.style.cursor='grabbing';notify('Pull back · release to launch · Esc to cancel');
  }else if(picked?.object){
   const o=picked.object,mode=picked.mode;if(!canManipulate(o,stacks.members(o)))return;if(joining(o)&&mode==='floor')joining(o)?.refresh(o);select(o);
