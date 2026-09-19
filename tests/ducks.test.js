@@ -54,9 +54,11 @@ test('shore hops have an airborne arc and ordinary movement holds a habitat for 
  assert.ok(hops.has('entering-water')&&hops.has('leaving-water'));assert.ok(peakLift>.06);assert.ok(changes.length>=2&&changes.length<=6,`habitat changes ${changes}`);
  for(let i=1;i<changes.length;i++)assert.ok(changes[i]-changes[i-1]>20,'no rapid shoreline ping-pong');
 });
-test('dabbling tips the head forward ninety degrees briefly, pauses travel, then restores swimming',()=>{
+test('dabbling tips the head forward ninety degrees for several seconds, pauses travel, then restores swimming',()=>{
  const terrain=pool(),f=new DuckFlock();f.nextArrival=0;f.step(1/60,terrain);const d=f.ducks[0];d.position.set(0,-.09,0);d.state='swimming';d.opacity=1;d.dabbleAt=0;f.nextMove=Infinity;
- const start=d.position.clone();let peak=0,states=new Set();advance(dt=>{f.step(dt,terrain);peak=Math.max(peak,Math.abs(d.dabbleAngle));states.add(d.state);if(d.state==='dabbling')assert.ok(Math.hypot(d.position.x-start.x,d.position.z-start.z)<1e-8);},1.6);
+ const start=d.position.clone();let peak=0,states=new Set();advance(dt=>{f.step(dt,terrain);peak=Math.max(peak,Math.abs(d.dabbleAngle));states.add(d.state);if(d.state==='dabbling')assert.ok(Math.hypot(d.position.x-start.x,d.position.z-start.z)<1e-8);},3);
+ assert.equal(d.state,'dabbling');assert.equal(d.dabbleAngle,-Math.PI/2,'holds the fully tipped pose for at least three seconds');
+ advance(dt=>f.step(dt,terrain),3);
  assert.ok(states.has('dabbling'));assert.ok(Math.abs(peak-Math.PI/2)<1e-8);assert.equal(d.dabbleAngle,0);assert.equal(d.state,'swimming');
  const view=duckMesh();view.group.position.set(0,-.09,0);view.group.rotation.z=-Math.PI/2;view.group.updateMatrixWorld(true);const bill=new THREE.Vector3(.34,.205,0).applyMatrix4(view.group.matrixWorld);assert.ok(bill.y<-.19,'bill is submerged, not tipped backward');
 });

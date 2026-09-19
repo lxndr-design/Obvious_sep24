@@ -81,9 +81,10 @@ export class DuckFlock {
  updateDabble(d,dt,water){
   d.dabbleAge=(d.dabbleAge??0)+dt;const t=d.dabbleAge;
   // Forward is local +X: rotating about local Z puts the bill below the surface.
-  const amount=t<.35?smooth(t/.35):t<1.05?1:1-smooth((t-1.05)/.4);
+  const riseAt=.35+d.dabbleHold;
+  const amount=t<.35?smooth(t/.35):t<riseAt?1:1-smooth((t-riseAt)/.4);
   d.dabbleAngle=-Math.PI/2*amount;d.position.y=water.y+.10*d.scale-.045*amount;d.velocity.set(0,0,0);
-  if(t>=1.45){d.state='swimming';d.dabbleAngle=0;d.dabbleAge=0;d.dabbleAt=this.time+9+this.random()*12;}
+  if(t>=riseAt+.4){d.state='swimming';d.dabbleAngle=0;d.dabbleAge=0;d.dabbleAt=this.time+9+this.random()*12;}
  }
  step(dt,terrain,pointer=null,isClear=()=>true){
   this.time+=dt;
@@ -101,7 +102,7 @@ export class DuckFlock {
    if(d.medium==='water'&&!currentWater){d.medium='land';d.swimming=false;d.state='walking';d.dabbleAngle=0;if(i===0){this.shoreVisit=true;this.habitatUntil=this.time+12;this.nextMove=this.time;}}
    if(d.state==='dabbling'&&currentWater){this.updateDabble(d,dt,currentWater);continue;}
    if(d.state==='arriving'){d.opacity=smooth(d.age/2.5);if(d.age>=2.5)d.state='swimming';}
-   if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;this.updateDabble(d,dt,currentWater);continue;}
+   if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;d.dabbleHold=3+this.random()*2;this.updateDabble(d,dt,currentWater);continue;}
    let target=this.target??d.position;
    if(i>0){const leader=this.ducks[i-1],side=i%2?1:-1;target=leader.position.clone().add(new THREE.Vector3(-Math.cos(leader.yaw)*.57+Math.sin(leader.yaw)*side*.28,0,Math.sin(leader.yaw)*.57+Math.cos(leader.yaw)*side*.28));if(!this.connected(d.position,target,terrain,isClear)||!!terrain.at(target.x,target.z)!==!this.shoreVisit)target=leader.position;}
    const delta=target.clone().sub(d.position);delta.y=0;const gap=delta.length(),water=this.surface(terrain,d.position),speed=water?.36:.31;
@@ -138,11 +139,29 @@ export class DuckFlock {
 export function duckMesh(){
  const group=new THREE.Group(),materials=[];
  const material=color=>{const m=new THREE.MeshStandardMaterial({color,roughness:.85,flatShading:true,transparent:true,opacity:0});materials.push(m);return m;};
- const feather=material(0xf7f6f0),wingMaterial=material(0xb5b5af),billMaterial=material(0xc09a55),eyeMaterial=material(0x242726);
- const shape=new THREE.Shape();const outline=[[-.34,.09],[-.24,-.03],[-.02,-.06],[.17,0],[.18,.15],[.29,.19],[.30,.27],[.24,.32],[.14,.30],[.11,.16],[-.04,.13],[-.24,.12]];shape.moveTo(...outline[0]);for(const p of outline.slice(1))shape.lineTo(...p);shape.closePath();
- const geometry=new THREE.ExtrudeGeometry(shape,{depth:.19,bevelEnabled:false,steps:1,curveSegments:1});geometry.translate(0,0,-.095);const body=new THREE.Mesh(geometry,feather);group.add(body);
+ const feather=material(0x96978c),breast=material(0x704332),head=material(0x246447),collar=material(0xe8e2cd);
+ const wingMaterial=material(0x655b4b),speculum=material(0x345895),billMaterial=material(0xd4a638),footMaterial=material(0xc97832),eyeMaterial=material(0x171a15);
+ const solid=(outline,depth,mat,z=0)=>{
+  const shape=new THREE.Shape();shape.moveTo(...outline[0]);for(const p of outline.slice(1))shape.lineTo(...p);shape.closePath();
+  const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:false,steps:1,curveSegments:1});geometry.translate(0,0,z-depth/2);
+  const mesh=new THREE.Mesh(geometry,mat);group.add(mesh);return mesh;
+ };
+ // Adjacent silhouette sections keep the low-poly body continuous while giving
+ // the mallard its gray flanks, chestnut breast, pale collar and green head.
+ const flankLow=-.06+(.075+.02)/(.17+.02)*.06,flankHigh=.13+(.075+.04)/(.11+.04)*.03;
+ solid([[-.34,.09],[-.24,-.03],[-.02,-.06],[.075,flankLow],[.075,flankHigh],[-.04,.13],[-.24,.12]],.19,feather);
+ const neckLeft=y=>.11+(y-.16)/(.30-.16)*.03,neckRight=y=>.29+(y-.19)/(.27-.19)*.01;
+ solid([[.075,flankLow],[.17,0],[.18,.15],[.29,.19],[neckLeft(.19),.19],[.11,.16],[.075,flankHigh]],.19,breast);
+ solid([[neckLeft(.19),.19],[.29,.19],[neckRight(.207),.207],[neckLeft(.207),.207]],.19,collar);
+ solid([[neckLeft(.207),.207],[neckRight(.207),.207],[.30,.27],[.24,.32],[.14,.30]],.19,head);
  const bill=new THREE.Mesh(new THREE.BoxGeometry(.14,.035,.11),billMaterial);bill.position.set(.34,.205,0);group.add(bill);
- const wings=[];for(const sign of [-1,1]){const wing=new THREE.Mesh(new THREE.SphereGeometry(1,6,3),wingMaterial);wing.scale.set(.19,.065,.022);wing.position.set(-.07,.055,sign*.098);group.add(wing);wings.push(wing);const eye=new THREE.Mesh(new THREE.CircleGeometry(.013,6),eyeMaterial);eye.position.set(.239,.26,sign*.096);eye.rotation.y=sign>0?0:Math.PI;group.add(eye);}
- const feet=[];for(const z of [-.062,.062]){const foot=new THREE.Mesh(new THREE.BoxGeometry(.115,.022,.07),billMaterial);foot.position.set(.055,-.169,z);group.add(foot);feet.push(foot);}
- group.traverse(o=>{if(o.isMesh)o.castShadow=o.receiveShadow=true;});return {group,feet,materials};
+ const wings=[];
+ for(const sign of [-1,1]){
+  // A broad shoulder folds back to a narrow feather tip; no oval wing lobes.
+  const wing=solid([[.095,.077],[.045,.118],[-.095,.11],[-.285,.035],[-.14,.012],[-.005,.01],[.075,.037]],.018,wingMaterial,sign*.103);wings.push(wing);
+  solid([[-.11,.034],[-.19,.052],[-.145,.076],[-.065,.057]],.003,speculum,sign*.114);
+  const eye=new THREE.Mesh(new THREE.CircleGeometry(.013,6),eyeMaterial);eye.position.set(.239,.26,sign*.096);eye.rotation.y=sign>0?0:Math.PI;group.add(eye);
+ }
+ const feet=[];for(const z of [-.062,.062]){const foot=new THREE.Mesh(new THREE.BoxGeometry(.115,.022,.07),footMaterial);foot.position.set(.055,-.169,z);group.add(foot);feet.push(foot);}
+ group.traverse(o=>{if(o.isMesh)o.castShadow=o.receiveShadow=true;});return {group,feet,wings,materials};
 }
