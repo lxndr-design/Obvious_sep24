@@ -20,7 +20,7 @@ test('a cautious bathing resident notices seed before returning to the rim and g
  const bath={id:'bath',kind:'bath',position:new THREE.Vector3(),rimY:1.53,waterY:1.45,rimRadius:.69};
  const c=new BirdColony(),f=new BirdseedField(()=>.5),b=resident(1,bath);b.state='bathing';b.position.set(.16,1.525,0);b.to=b.position.clone();b.target.set(.69,1.612,0);c.birds=[b];c.sequence=1;c.time=20;c.nextArrival=20;
  f.scatter(new THREE.Vector3(1.6,0,0));let noticeTime=null,peakFlight=0;
- advance(dt=>{c.step(dt,[bath,...f.sites()]);if(b.state==='considering'&&noticeTime===null)noticeTime=c.time-20;if(b.state==='arriving')peakFlight=Math.max(peakFlight,b.position.y);},12);
+ advance(dt=>{c.step(dt,[bath,...f.sites()]);if(b.state==='considering'&&noticeTime===null)noticeTime=c.time-20;if(b.state==='arriving')peakFlight=Math.max(peakFlight,b.position.y);},14);
  assert.ok(noticeTime>3&&noticeTime<4.6,`noticed after ${noticeTime}s`);
  assert.equal(f.read().seeds[0].eatenBy,b.id);assert.equal(b.fullness,1);
  assert.ok(peakFlight>bath.rimY+.2,'departure rises over the rim');assert.equal(b.opacity,1);

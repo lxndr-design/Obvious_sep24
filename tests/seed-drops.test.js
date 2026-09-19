@@ -30,7 +30,7 @@ test('birds notice separately, then take different reaction times before moving 
 test('cautious birds approach more slowly and elevated seed is eaten at its actual height',()=>{
  const birds=[];for(const caution of [0,1]){const f=new BirdseedField(()=>.5);f.scatter(new THREE.Vector3(0,1.3,0));const b={id:1,caution,state:'feeding',position:new THREE.Vector3(2,1.38,0),fullness:0,capacity:9};advance(dt=>feedBird(b,f.sites()[0],dt),1);birds.push(b);}
  assert.ok(birds[0].position.x<birds[1].position.x-.4);assert.ok(Math.abs(birds[0].position.y-1.38)<1e-5);
- const f=new BirdseedField(()=>.5);f.scatter(new THREE.Vector3(0,1.3,0));const b={id:1,caution:.5,state:'feeding',position:new THREE.Vector3(0,1.38,0),fullness:0,capacity:1};advance(dt=>feedBird(b,{...f.patches[0],field:f},dt),1);assert.equal(b.fullness,1);assert.equal(f.eaten,1);
+ const f=new BirdseedField(()=>.5);f.scatter(new THREE.Vector3(0,1.3,0));const b={id:1,caution:.5,state:'feeding',position:new THREE.Vector3(0,1.38,0),fullness:0,capacity:1};advance(dt=>feedBird(b,{...f.patches[0],field:f},dt),2);assert.equal(b.fullness,1);assert.equal(f.eaten,1);
 });
 
 test('floating grains follow live pool, bath and fountain water, preserve their ledger, and fall when a basin moves',async()=>{

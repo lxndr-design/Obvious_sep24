@@ -37,7 +37,7 @@ test('birdseed mode suppresses both world and screen cursor fear; Move restores 
 test('full birds linger without overeating, and finishing the last seed does not trigger immediate flight',()=>{
  for(const count of [1,30]){
   const food=new BirdseedField(seededRandom(2)),c=new BirdColony(seededRandom(5));c.limit=1;food.scatter(new THREE.Vector3(),()=>true,count);
-  let bird;for(let i=0;i<60*30;i++){c.step(1/60,food.sites());bird=c.birds.find(b=>['sated','lingering'].includes(b.state));if(bird)break;}
+  let bird;for(let i=0;i<60*75;i++){c.step(1/60,food.sites());bird=c.birds.find(b=>['sated','lingering'].includes(b.state));if(bird)break;}
   assert.ok(bird,`a bird should finish feeding on ${count} seeds`);assert.ok(bird.lingerDuration>=12&&bird.lingerDuration<=24);const eaten=food.eaten;
   advance(dt=>c.step(dt,food.sites()),10);assert.ok(['sated','lingering'].includes(bird.state));assert.equal(bird.opacity,1);assert.equal(food.eaten,eaten);assert.equal(bird.wingState,'closed');
   c.disturb(bird.position.clone(),food.sites());assert.equal(bird.state,'departing','a nearby Move cursor still startles resting birds');
@@ -48,4 +48,13 @@ test('a resting hungry bird resumes eating when more seed is scattered nearby',(
  const food=new BirdseedField(seededRandom(2)),c=new BirdColony(seededRandom(5));c.limit=1;food.scatter(new THREE.Vector3(),()=>true,1);
  let bird;for(let i=0;i<60*20;i++){c.step(1/60,food.sites());bird=c.birds.find(b=>b.state==='lingering');if(bird)break;}
  assert.ok(bird);assert.equal(bird.fullness,1);food.scatter(new THREE.Vector3(),()=>true,30);advance(dt=>c.step(dt,food.sites()),10);assert.ok(bird.fullness>1);assert.ok(bird.fullness<=bird.capacity);
+});
+
+test('feeding takes a full peck, then pauses without claiming or chasing the next seed',()=>{
+ const f=new BirdseedField(()=>.5);for(let i=0;i<4;i++)f.scatter(new THREE.Vector3());
+ const site=f.sites()[0],b={id:1,state:'feeding',position:new THREE.Vector3(0,.08,0),caution:.4,fullness:0,capacity:10,yaw:0};
+ advance(dt=>feedBird(b,site,dt),.7);assert.equal(f.eaten,0,'no instant eating');
+ advance(dt=>feedBird(b,site,dt),.9);assert.equal(f.eaten,1);assert.ok(b.seedSearchWait>1);assert.ok(f.available().every(s=>s.owner===null),'no reservation during the rest');
+ const rest=b.position.clone();advance(dt=>feedBird(b,site,dt),1);assert.equal(f.eaten,1);assert.ok(b.position.equals(rest));assert.equal(b.peck,0);
+ advance(dt=>feedBird(b,site,dt),4);assert.ok(f.eaten>=2,'eventually resumes searching and eating');assert.ok(f.eaten<=3,'does not rush through the entire patch');
 });

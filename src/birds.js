@@ -37,6 +37,7 @@ export class BirdColony {
  step(dt,sites,pointer=null,isClear=()=>true){
   this.time+=dt;if(pointer)this.disturb(pointer,sites);
   for(const b of this.birds){b.age+=dt;b.visitAge=(b.visitAge??0)+dt;
+   if(b.state!=='feeding'&&b.seedSearchWait>0)b.seedSearchWait=Math.max(0,b.seedSearchWait-dt);
    const clear=(p,site)=>isClear(p,site,b);
    let site=sites.find(p=>p.id===b.pileId&&available(p));
    b.scale??=sampleBirdScale(this.traitRandom);b.caution??=this.temperamentRandom();b.fullness??=0;b.capacity??=6+Math.floor(this.random()*10);b.fatness??=0;

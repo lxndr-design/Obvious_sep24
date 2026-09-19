@@ -65,15 +65,25 @@ export class BirdseedView {
  constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(SEED_RADIUS,0),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,flatShading:true}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
  update(){if(this.version===this.field.version)return;this.version=this.field.version;const seeds=this.field.available();this.mesh.count=seeds.length;seeds.forEach((s,i)=>{this.transform.position.copy(s.position);this.transform.scale.set(.75,.6,1);this.transform.quaternion.copy(s.rotation);this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);});this.mesh.instanceMatrix.needsUpdate=true;}
 }
+const feedingJitter=bird=>{const n=Math.sin((bird.id??0)*12.9898+(bird.fullness??0)*78.233)*43758.5453;return n-Math.floor(n);};
 export function feedBird(bird,site,dt,clear=()=>true){
  const field=site.field;bird.seedField=field;
  if(bird.fullness>=bird.capacity){bird.state='sated';bird.age=0;bird.peck=0;field.release(bird.id);return;}
+ if(bird.seedSearchWait>0){
+  bird.seedSearchWait=Math.max(0,bird.seedSearchWait-dt);bird.peck=0;bird.groundHopPhase=0;
+  const t=1-bird.seedSearchWait/bird.seedSearchDuration;bird.yaw=bird.seedSearchYaw+Math.sin(t*Math.PI*2)*.18;
+  return;
+ }
  let seed=field.seeds.get(bird.seedId);
- if(!seed||seed.eatenBy!==null||seed.owner!==bird.id||!seed.settled){seed=field.claim(bird.position,bird.id,site.id,p=>clear(p.clone().add(new THREE.Vector3(0,birdFootHeight(bird)-SEED_HEIGHT,0)),site));bird.seedId=seed?.id;bird.eatTime=0;}
+ if(!seed||seed.eatenBy!==null||seed.owner!==bird.id||!seed.settled){seed=field.claim(bird.position,bird.id,site.id,p=>clear(p.clone().add(new THREE.Vector3(0,birdFootHeight(bird)-SEED_HEIGHT,0)),site));bird.seedId=seed?.id;bird.eatTime=0;bird.eatDuration=.85+.45*(bird.caution??0)+.25*feedingJitter(bird);}
  if(!seed){bird.peck=0;return;}
  if(!clear(seedLanding(seed,bird),site)){field.release(bird.id);bird.seedId=null;return;}
  const target=seedLanding(seed,bird);if(Math.abs(target.y-bird.position.y)>.16){bird.from=bird.position.clone();bird.target=target;bird.age=0;bird.state='arriving';bird.residentArrival=true;return;}const delta=target.clone().sub(bird.position);delta.y=0;const distance=delta.length();
  if(distance>.065){const next=bird.position.clone().addScaledVector(delta,Math.min(1,dt*(.95-.5*(bird.caution??0))/distance));next.y=target.y+groundHopHeight(bird,dt);if(clear(next,site))bird.position.copy(next);else{field.release(bird.id);bird.seedId=null;}bird.yaw=Math.atan2(-delta.z,delta.x);bird.peck=0;return;}
- bird.position.y=target.y;bird.groundHopPhase=0;bird.eatTime=(bird.eatTime??0)+dt;bird.peck=Math.max(0,Math.sin(Math.min(1,bird.eatTime/(.5+.4*(bird.caution??0)))*Math.PI));
- if(bird.eatTime>=.25+.2*(bird.caution??0)&&field.consume(seed.id,bird.id)){bird.fullness++;bird.fatness=bird.fullness/bird.capacity;bird.seedId=null;bird.eatTime=0;}
+ bird.eatDuration??=.85+.45*(bird.caution??0)+.25*feedingJitter(bird);
+ bird.position.y=target.y;bird.groundHopPhase=0;bird.eatTime=(bird.eatTime??0)+dt;bird.peck=Math.max(0,Math.sin(Math.min(1,bird.eatTime/bird.eatDuration)*Math.PI));
+ if(bird.eatTime>=bird.eatDuration&&field.consume(seed.id,bird.id)){
+  bird.fullness++;bird.fatness=bird.fullness/bird.capacity;bird.seedId=null;bird.eatTime=0;bird.eatDuration=null;bird.peck=0;
+  bird.seedSearchDuration=1.5+1.2*(bird.caution??0)+.8*feedingJitter(bird);bird.seedSearchWait=bird.seedSearchDuration;bird.seedSearchYaw=bird.yaw??0;
+ }
 }

@@ -5,7 +5,7 @@ export const birdFootHeight=bird=>.08*birdScale(bird);
 export const birdHopTempo=bird=>Math.pow(birdScale(bird),1.5);
 export const birdSpacing=(a,b)=>.22*(birdScale(a)+birdScale(b));
 export const smallBird=bird=>birdScale(bird)<1;
-export const canNoticeSeed=bird=>!bird.carriedStick&&bird.fullness<bird.capacity&&(
+export const canNoticeSeed=bird=>!(bird.seedSearchWait>0)&&!bird.carriedStick&&bird.fullness<bird.capacity&&(
  ['foraging','perching','bathing','hopping'].includes(bird.state)||bird.state==='lingering'&&bird.age>1);
 export function groundHopHeight(bird,dt){
  bird.groundHopPhase=((bird.groundHopPhase??0)+dt*17/birdHopTempo(bird))%(Math.PI*2);

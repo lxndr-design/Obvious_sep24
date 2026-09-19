@@ -47,3 +47,21 @@ test('every Grandma outfit and hairstyle keeps both poses, bench support and see
  }
  p.dispose();
 });
+
+test('Grandma waits for all seed ahead, including reserved and airborne seed, and detects the area after rotation',()=>{
+ const {p,add}=setup(),g=add('grandma',3),food=new BirdseedField(()=>.5),feeding=new GrandmaFeeding(()=>.5);
+ g.mesh.rotation.y=Math.PI/2;
+ food.scatter(new THREE.Vector3(4,0,0));const seed=food.available()[0];seed.settled=false;seed.owner=77;
+ feeding.step(20,[g],food);assert.equal(food.sequence,1);assert.equal(feeding.scatters,0);
+ seed.settled=true;assert.ok(food.consume(seed.id,77));feeding.step(1.1,[g],food);assert.equal(food.remaining,6);assert.equal(feeding.scatters,1);
+ feeding.step(30,[g],food);assert.equal(food.remaining,6,'her airborne scatter also prevents another toss');
+ food.reset();food.scatter(new THREE.Vector3(2,0,0));feeding.step(2,[g],food);assert.equal(food.remaining,7,'seed behind her does not block a fresh toss');p.dispose();
+});
+test('Grandma scatter settles into a two-dimensional patch and she waits until the patch is eaten',()=>{
+ const {p,add}=setup(),g=add('grandma',3,3),food=new BirdseedField(()=>.5),feeding=new GrandmaFeeding(()=>.5);food.attachPhysics(p.world,R);
+ feeding.step(6,[g],food);for(let i=0;i<240;i++){p.step(1/60);food.updatePhysics(1/60);}
+ const seeds=food.available(),points=seeds.map(s=>s.position);let area=0;
+ for(const a of points)for(const b of points)for(const c of points)area=Math.max(area,Math.abs((b.x-a.x)*(c.z-a.z)-(b.z-a.z)*(c.x-a.x))/2);
+ assert.ok(area>.04,`scatter triangle area ${area}`);assert.ok(seeds.every(s=>s.settled));feeding.step(30,[g],food);assert.equal(food.remaining,6);
+ for(const s of seeds){s.owner=1;assert.ok(food.consume(s.id,1));}feeding.step(1.1,[g],food);assert.equal(food.remaining,6);assert.equal(food.eaten,6);food.reset();p.dispose();
+});

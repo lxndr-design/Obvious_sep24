@@ -114,6 +114,13 @@ export function disposeGrandma(o){if(o.grandmaForms)for(const form of Object.val
 
 export class GrandmaFeeding {
  constructor(random=Math.random){this.random=random;this.timers=new Map();this.busy=()=>false;this.scatters=0;}
+ hasSeedInFront(o,food){
+  const inverse=o.mesh.quaternion.clone().invert(),handY=o.hand.clone().applyQuaternion(o.mesh.quaternion).add(o.mesh.position).y;
+  return food.available().some(seed=>{
+   const p=seed.position.clone().sub(o.mesh.position).applyQuaternion(inverse);
+   return p.z>.12&&p.z<3&&Math.abs(p.x)<Math.min(1.8,.55+p.z*.55)&&seed.position.y<handY+.45;
+  });
+ }
  step(dt,objects,food){
   const present=new Set(objects.filter(o=>o.grandmaForms));
   for(const o of this.timers.keys())if(!present.has(o))this.timers.delete(o);
@@ -121,11 +128,15 @@ export class GrandmaFeeding {
    let timer=this.timers.get(o)??(4+this.random()*3);
    if(o.hanging||this.busy(o)){this.timers.set(o,Math.max(timer,2));continue;}
    timer-=dt;
+   if(timer<=0&&this.hasSeedInFront(o,food)){this.timers.set(o,1);continue;}
    if(timer<=0){
     const hand=o.hand.clone().applyQuaternion(o.mesh.quaternion).add(o.mesh.position),count=4+Math.floor(this.random()*4);
     for(let i=0;i<count;i++){
-     const velocity=new THREE.Vector3((this.random()-.5)*.85,.35+this.random()*.4,.8+this.random()*.7).applyQuaternion(o.mesh.quaternion);
-     food.drop(hand,{lift:0,velocity});
+     // Spread directions across a fan and stagger near/far distances independently.
+     const angle=-.9+(i+this.random())/count*1.8,speed=.7+1.65*((i*.61803398875+this.random()*.5)%1);
+     const velocity=new THREE.Vector3(Math.sin(angle)*speed,.3+this.random()*.55,Math.cos(angle)*speed).applyQuaternion(o.mesh.quaternion);
+     const release=hand.clone().add(new THREE.Vector3((this.random()-.5)*.10,this.random()*.025,0).applyQuaternion(o.mesh.quaternion));
+     food.drop(release,{lift:0,velocity});
     }
     this.scatters++;timer=10+this.random()*8;
    }
