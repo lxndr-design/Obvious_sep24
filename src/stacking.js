@@ -1,3 +1,4 @@
+import {grandmaPlacement,applyGrandmaPlacement,setGrandmaPose} from './grandma.js';
 import * as THREE from 'three';
 
 const up=new THREE.Vector3(0,1,0);
@@ -39,6 +40,7 @@ export function stackingProfile(type,form){
 
 export class StackScene {
  constructor(collision){this.collision=collision;}
+ placeGrandma(o,target,groundOnly=false){const placement=grandmaPlacement(this.collision,o,target.x,target.z,groundOnly);if(!placement)return false;applyGrandmaPlacement(o,placement,this.collision);return true;}
  members(root){const result=[root],seen=new Set(result);for(let i=0;i<result.length;i++)for(const o of this.collision.objects)if(!o.hanging&&o.support===result[i]&&!seen.has(o)){seen.add(o);result.push(o);}return result;}
  fits(object,host,x,z,rotation=object.mesh.quaternion){
   const a=object.stacking,b=host.stacking;
@@ -54,13 +56,14 @@ export class StackScene {
   }
   return [...choices.sort((a,b)=>b.y-a.y),ground];
  }
- snapshot(root){return this.members(root).map(o=>({object:o,position:o.mesh.position.clone(),rotation:o.mesh.quaternion.clone(),support:o.support??null}));}
- restore(snapshot){for(const s of snapshot){s.object.mesh.position.copy(s.position);s.object.mesh.quaternion.copy(s.rotation);s.object.support=s.support;}}
+ snapshot(root){return this.members(root).map(o=>({object:o,position:o.mesh.position.clone(),rotation:o.mesh.quaternion.clone(),support:o.support??null,seated:o.seated}));}
+ restore(snapshot){for(const s of snapshot){setGrandmaPose(s.object,s.seated,this.collision);s.object.mesh.position.copy(s.position);s.object.mesh.quaternion.copy(s.rotation);s.object.support=s.support;}}
  valid(members,delta){const ignore=new Set(members);return members.every(o=>this.collision.canPlace(o,o.mesh.position.clone().add(delta),o.mesh.quaternion,ignore));}
  sweep(members,from,to){const ignore=new Set(members);let fraction=1;for(const o of members)fraction=Math.min(fraction,this.collision.castFraction(o,o.mesh.position.clone().add(from),o.mesh.position.clone().add(to),ignore));return fraction;}
  clear(members,from,to){return (1-this.sweep(members,from,to))*from.distanceTo(to)<.001;}
  translate(members,delta){for(const o of members)o.mesh.position.add(delta);}
  move(root,target){
+  if(root.type==='grandma')return this.placeGrandma(root,target);
   if(!target.toArray().every(Number.isFinite))return false;
   const members=this.members(root),from=root.mesh.position.clone();if(from.x===target.x&&from.z===target.z)return true;
   const choices=this.supports(root,target.x,target.z,new Set(members)),zero=new THREE.Vector3();
@@ -76,6 +79,7 @@ export class StackScene {
   return false;
  }
  settle(root){
+  if(root.type==='grandma')return this.placeGrandma(root,root.mesh.position);
   const members=this.members(root),zero=new THREE.Vector3();
   for(const choice of this.supports(root,root.mesh.position.x,root.mesh.position.z,new Set(members))){
    if(choice.y>root.mesh.position.y+.001)continue;const delta=new THREE.Vector3(0,choice.y-root.mesh.position.y,0);
@@ -83,6 +87,7 @@ export class StackScene {
   }return false;
  }
  rotate(root){
+  if(root.type==='grandma'&&root.seated)return false;
   const snapshot=this.snapshot(root),members=snapshot.map(s=>s.object),ignore=new Set(members),pivot=root.mesh.position.clone();
   for(let i=1;i<=18;i++){
    const rotation=new THREE.Quaternion().setFromAxisAngle(up,i*Math.PI/36);

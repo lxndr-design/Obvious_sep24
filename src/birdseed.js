@@ -15,11 +15,12 @@ export class BirdseedField {
   if(added)this.version++;return added;
  }
  attachPhysics(world,R){this.world=world;this.R=R;const g=new THREE.IcosahedronGeometry(SEED_RADIUS,0);g.scale(.75,.6,1);this.seedShape=new R.ConvexPolyhedron(new Float32Array(g.attributes.position.array));g.dispose();}
- drop(point){
-  const added=this.scatter(point.clone().add(new THREE.Vector3(0,.45,0)));if(!added)return 0;const seed=this.seeds.get(this.sequence);
+ drop(point,{lift=.45,velocity=null}={}){
+  const added=this.scatter(point.clone().add(new THREE.Vector3(0,lift,0)));if(!added)return 0;const seed=this.seeds.get(this.sequence);
   if(this.world){const R=this.R,p=seed.position;seed.settled=false;
    seed.body=this.world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(p.x,p.y,p.z).setCcdEnabled(true).setLinearDamping(1.3).setAngularDamping(2).setLinvel((this.random()-.5)*.16,-.2,(this.random()-.5)*.16));
    this.world.createCollider(new R.ColliderDesc(this.seedShape).setDensity(.5).setFriction(.65).setRestitution(.18).setContactSkin(.001),seed.body);
+   if(velocity)seed.body.setLinvel(velocity,true);
   }return 1;
  }
  beforeStep(dt,waterAt){

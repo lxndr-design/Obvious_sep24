@@ -1,3 +1,4 @@
+import {GrandmaFeeding} from './grandma.js';
 import {StickCollection,attachCarriedStick} from './sticks.js';
 import {bathDimensions,bathContains} from './bath-shapes.js';
 import {DuckFlock,duckMesh} from './ducks.js';
@@ -26,7 +27,7 @@ export class Ecology {
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
   this.colony.onSplash=(position,site)=>{if(site.shore){const view=this.terrain?.at(position.x,position.z);if(view){const uv=this.terrain.uv(view,position);view.field.disturb(uv.u,uv.v,-.45,.075);view.field.emit(uv.u,uv.v,.8);}}else this.bathViews.get(site.object)?.splash(position);};
   this.sticks=new StickCollection(()=>this.collision.objects);
-  this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
+  this.grandmas=new GrandmaFeeding(seededRandom(934));this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
  }
  createPlants(){
   const patches=[[-6,3],[-5,-1.5],[-3.5,4.8],[.1,2.1],[2,5],[5.9,1.8],[6.5,-2.5],[-1.8,-4.5],[-6,-4.8],[1,-5.1],[5.9,-4.8],[-.2,-2.8],[-2,1.4],[7.5,4.5],[-8,-1],[8,-5],[-4,7],[4.4,6.7]];
@@ -140,7 +141,7 @@ export class Ecology {
   return true;
  }
  update(delta,camera,width,height){
-  this.clock+=delta;this.food.updatePhysics(delta);
+  this.clock+=delta;this.grandmas.step(delta,this.collision.objects,this.food);this.food.updatePhysics(delta);
   for(const o of this.loose){o.mesh.position.copy(o.body.translation());o.mesh.quaternion.copy(o.body.rotation());}
   // Each pile follows its physical leaves; scattered or submerged leaves no longer attract birds.
   for(const pile of this.piles){const leaves=this.loose.filter(o=>o.pileId===pile.id&&o.type==='leaf'&&!o.lastWet&&o.mesh.position.y<.35);let best=[];
@@ -179,7 +180,7 @@ export class Ecology {
  }
  reset(){
   this.ducks.reset();this.waterContacts.reset();for(const view of this.duckViews.values()){view.group.removeFromParent();view.group.traverse(o=>o.geometry?.dispose());view.materials.forEach(m=>m.dispose());}this.duckViews.clear();
-  this.sticks.reset();this.food.reset();this.foodView.update();
+  this.grandmas.reset();this.sticks.reset();this.food.reset();this.foodView.update();
   for(const o of this.loose){o.body.setTranslation(o.spawn,true);o.body.setRotation(o.spawnRotation,true);o.body.setLinvel({x:0,y:0,z:0},true);o.body.setAngvel({x:0,y:0,z:0},true);o.body.resetForces(true);o.body.resetTorques(true);o.mesh.position.copy(o.spawn);o.mesh.quaternion.copy(o.spawnRotation);o.lastWet=false;}
   for(const item of this.strands){item.strand.reset();this.updateBlade(item);}this.colony.reset();for(const view of this.birdViews.values()){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();}this.birdViews.clear();for(const view of this.bathViews.values())view.dispose();this.bathViews.clear();this.habitats=[];this.accumulator=0;this.pointer=null;this.pointerScreen=null;
  }

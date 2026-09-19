@@ -45,7 +45,7 @@ export class PendulumScene {
       o.joint=this.world.createImpulseJoint(R.JointData.rope(o.cableLength,ZERO,{x:0,y:o.height/2,z:0}),o.anchorBody,o.body,true);
       o.joint.setContactsEnabled(false);
     }
-    this.objects.add(o);
+    o.bodyGeometry=o.geometry;this.objects.add(o);
   }
   remove(o){
     if(this.pull?.object===o)this.releasePull();
@@ -57,7 +57,7 @@ export class PendulumScene {
   }
   rebuild(o){this.remove(o);this.add(o);}
   attachment(o){return new THREE.Vector3(0,o.height/2,0).applyQuaternion(o.mesh.quaternion).add(o.mesh.position);}
-  syncPose(o){o.body.setTranslation(o.mesh.position,true);o.body.setRotation(o.mesh.quaternion,true);if(o.anchorBody)o.anchorBody.setTranslation(o.anchor,true);}
+  syncPose(o){if(o.bodyGeometry!==o.geometry){this.rebuild(o);return;}o.body.setTranslation(o.mesh.position,true);o.body.setRotation(o.mesh.quaternion,true);if(o.anchorBody)o.anchorBody.setTranslation(o.anchor,true);}
   snapshot(o){return {position:o.mesh.position.clone(),quaternion:o.mesh.quaternion.clone(),anchor:o.anchor?.clone(),velocity:{...o.body.linvel()},angularVelocity:{...o.body.angvel()}};}
   restore(o,s){o.mesh.position.copy(s.position);o.mesh.quaternion.copy(s.quaternion);if(s.anchor)o.anchor.copy(s.anchor);this.syncPose(o);o.body.setLinvel(s.velocity,true);o.body.setAngvel(s.angularVelocity,true);}
   beginAnchor(o){this.releasePull();o.body.setBodyType(this.R.RigidBodyType.KinematicPositionBased,true);o.body.setLinvel(ZERO,true);o.body.setAngvel(ZERO,true);}
