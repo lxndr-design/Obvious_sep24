@@ -113,13 +113,23 @@ export class DuckFlock {
    if(d.state==='arriving'){d.opacity=smooth(d.age/2.5);if(d.age>=2.5)d.state='swimming';}
    if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;d.dabbleHold=3+this.random()*2;this.updateDabble(d,dt,currentWater);continue;}
    let target=this.target??d.position;
-   if(i>0){const leader=this.ducks[i-1],side=i%2?1:-1;target=leader.position.clone().add(new THREE.Vector3(-Math.cos(leader.yaw)*.57+Math.sin(leader.yaw)*side*.28,0,Math.sin(leader.yaw)*.57+Math.cos(leader.yaw)*side*.28));if(!this.connected(d.position,target,terrain,isClear)||!!terrain.at(target.x,target.z)!==!this.shoreVisit)target=leader.position;}
+   if(i>0){
+    const leader=this.ducks[i-1],gap=distance(d.position,leader.position);
+    // Hold a waypoint until reached; chasing a rotating tail offset caused orbiting.
+    if(!d.followTarget||distance(d.followTarget,leader.position)>1.15||!!terrain.at(d.followTarget.x,d.followTarget.z)!==!this.shoreVisit){
+     const behind=d.position.clone().sub(leader.position);behind.y=0;if(behind.lengthSq()<.001)behind.set(-1,0,0);
+     d.followTarget=leader.position.clone().addScaledVector(behind.normalize(),.65);
+    }
+    target=gap<.8&&leader.velocity.lengthSq()<.005?d.position:d.followTarget;
+    if(!this.connected(d.position,target,terrain,isClear))target=d.position;
+   }
    const delta=target.clone().sub(d.position);delta.y=0;const gap=delta.length(),water=this.surface(terrain,d.position),speed=water?.36:.31;
    const wanted=gap>.15?delta.multiplyScalar(Math.min(speed,gap*.85)/Math.max(gap,.001)):new THREE.Vector3();
    // Separate smoothly when the leader turns back through its followers.
    for(const other of this.ducks){if(other===d)continue;const away=d.position.clone().sub(other.position);away.y=0;const separation=away.length();if(separation>.001&&separation<.6)wanted.addScaledVector(away,(.6-separation)*2/separation);}
    wanted.clampLength(0,speed);
    d.velocity.lerp(wanted,1-Math.exp(-3*dt));let next=d.position.clone().addScaledVector(d.velocity,dt);
+   if(gap<.18&&wanted.lengthSq()<.001){d.velocity.set(0,0,0);next=d.position.clone();}
    if(!this.clear(next,terrain,isClear)||this.ducks.some(other=>other!==d&&distance(next,other.position)<.34)){d.velocity.set(0,0,0);next=d.position.clone();}
    const nextWater=this.surface(terrain,next),changingMedium=!!nextWater!==(d.medium==='water');
    // Anticipate the bank, so the body clears the lip instead of sliding through it.
@@ -131,7 +141,7 @@ export class DuckFlock {
    d.position.x=next.x;d.position.z=next.z;const surface=this.surface(terrain,d.position);d.swimming=d.medium==='water';
    const y=surface&&d.swimming?surface.y+.10*d.scale:.18*d.scale;
    d.position.y=THREE.MathUtils.lerp(d.position.y,y,1-Math.exp(-9*dt));
-   if(d.velocity.lengthSq()>.001){const yaw=Math.atan2(-d.velocity.z,d.velocity.x);d.yaw+=Math.atan2(Math.sin(yaw-d.yaw),Math.cos(yaw-d.yaw))*(1-Math.exp(-5*dt));d.stepPhase+=dt*9;}
+   if(d.velocity.lengthSq()>.001){const yaw=Math.atan2(-d.velocity.z,d.velocity.x);d.yaw+=Math.atan2(Math.sin(yaw-d.yaw),Math.cos(yaw-d.yaw))*(1-Math.exp(-5*dt));d.stepPhase+=d.velocity.length()*dt*28;}
    if(d.state!=='arriving')d.state=d.swimming?'swimming':'walking';
    if(surface){const pitch=(terrain.sample(surface.view,d.position.x+.12,d.position.z)-terrain.sample(surface.view,d.position.x-.12,d.position.z))/.24;d.tilt=THREE.MathUtils.clamp(pitch,-.12,.12);}else d.tilt=0;
   }
@@ -189,6 +199,10 @@ export function duckMesh(variant='mallard'){
  }else if(variant==='coot'){
   solid([[.287,.21],[.308,.215],[.300,.295],[.279,.30]],.078,billMaterial);
  }
- const feet=[];for(const z of [-.062,.062]){const foot=new THREE.Mesh(new THREE.BoxGeometry(.115,.022,.07),footMaterial);foot.position.set(.055,-.169,z);group.add(foot);feet.push(foot);}
- group.traverse(o=>{if(o.isMesh)o.castShadow=o.receiveShadow=true;});return {group,feet,wings,materials};
+ const feet=[],legs=[],legPivots=[];for(const z of [-.062,.062]){
+  const pivot=new THREE.Group();pivot.position.set(.015,-.035,z);group.add(pivot);legPivots.push(pivot);
+  const leg=new THREE.Mesh(new THREE.CylinderGeometry(.014,.018,.12,6),footMaterial);leg.position.set(0,-.060,0);pivot.add(leg);legs.push(leg);
+  const foot=new THREE.Mesh(new THREE.BoxGeometry(.115,.022,.07),footMaterial);foot.position.set(.04,-.134,0);pivot.add(foot);feet.push(foot);
+ }
+ group.traverse(o=>{if(o.isMesh)o.castShadow=o.receiveShadow=true;});return {group,feet,legs,legPivots,wings,materials};
 }

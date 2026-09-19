@@ -25,7 +25,7 @@ export const BIRD_PALETTES=[
  {name:'Blue',body:0x527fa3,wing:0x334f72},
  {name:'Rust',body:0xb97550,wing:0x775047},
  {name:'Gold',body:0xc5a34c,wing:0x827340},
- {name:'Charcoal',body:0x555c67,wing:0x303642},
+ {name:'Pigeon',body:0x555c67,wing:0x303642},
  {name:'White',body:0xf4f1e7,wing:0xbcc5cd},
 ];
 export function birdMesh(palette=null){
@@ -41,9 +41,10 @@ export function birdMesh(palette=null){
  // Two small eyes follow the head when it pecks and fade with the bird.
  const eyeMaterial=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0});
  const pupilMaterial=new THREE.MeshBasicMaterial({color:0x171c21,transparent:true,opacity:0});
+ const eyes=[];
  for(const sign of [1,-1]){
   const eye=new THREE.Mesh(new THREE.CircleGeometry(.009,6),eyeMaterial);eye.position.set(.078,.080,sign*.0235);eye.rotation.y=sign===1?0:Math.PI;body.add(eye);
-  const pupil=new THREE.Mesh(new THREE.CircleGeometry(.0048,6),pupilMaterial);pupil.position.set(.080,.080,sign*.024);pupil.rotation.y=eye.rotation.y;body.add(pupil);
+  const pupil=new THREE.Mesh(new THREE.CircleGeometry(.0048,6),pupilMaterial);pupil.position.set(.080,.080,sign*.024);pupil.rotation.y=eye.rotation.y;body.add(pupil);eyes.push({mesh:eye,rest:eye.position.clone()},{mesh:pupil,rest:pupil.position.clone()});
  }
  const wings=[];
  for(const sign of [1,-1]){
@@ -52,7 +53,7 @@ export function birdMesh(palette=null){
  }
  const feet=new THREE.BufferGeometry();feet.setAttribute('position',new THREE.Float32BufferAttribute([.019,-.08,.015,.029,-.08,.015,.032,-.015,.015,.019,-.08,-.015,.029,-.08,-.015,.032,-.015,-.015],3));feet.computeVertexNormals();
  const legs=new THREE.Mesh(feet,material);legs.castShadow=true;group.add(legs);
- const view={group,body,wings,torso:mesh,torsoRest:new Float32Array(geometry.attributes.position.array),fatness:0,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};setBirdWings(view,0);return view;
+ const view={group,body,wings,eyes,headBob:0,torso:mesh,torsoRest:new Float32Array(geometry.attributes.position.array),fatness:0,materials:[material,wingMaterial,eyeMaterial,pupilMaterial]};setBirdWings(view,0);return view;
 }
 export function seedForm(R){
  const geometries=[],parts=[];
@@ -65,12 +66,14 @@ export function seedForm(R){
  const geometry=mergeGeometries(geometries);for(const g of geometries)g.dispose();return {geometry,parts};
 }
 
-export function setBirdFatness(view,fatness){
- fatness=Math.max(0,Math.min(1,fatness));if(Math.abs(view.fatness-fatness)<.001)return;view.fatness=fatness;
+export function setBirdFatness(view,fatness,headBob=0){
+ fatness=Math.max(0,Math.min(1,fatness));if(Math.abs(view.fatness-fatness)<.001&&Math.abs(view.headBob-headBob)<.00001)return;view.fatness=fatness;view.headBob=headBob;
  const a=view.torso.geometry.attributes.position,rest=view.torsoRest;
  for(let i=0;i<a.count;i++){const j=i*3,x=rest[j],y=rest[j+1],z=rest[j+2],belly=Math.max(0,1-Math.abs(x-.005)/.095);
-  a.setXYZ(i,x,y-fatness*belly*.035,z*(1+fatness*belly*1.8));
+  const head=Math.max(0,Math.min(1,(x-.025)/.05))*Math.max(0,Math.min(1,(y-.02)/.035));
+  a.setXYZ(i,x+headBob*head,y-fatness*belly*.035,z*(1+fatness*belly*1.8));
  }
+ for(const eye of view.eyes){eye.mesh.position.copy(eye.rest);eye.mesh.position.x+=headBob;}
  a.needsUpdate=true;view.torso.geometry.computeVertexNormals();view.torso.geometry.computeBoundingSphere();view.torso.geometry.computeBoundingBox();
  view.wings.forEach((w,i)=>w.position.z=(i===0?1:-1)*(.024+fatness*.023));
 }
