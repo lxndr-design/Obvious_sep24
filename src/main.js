@@ -1,6 +1,7 @@
 import './style.css';
 import {properties,applyMaterialProperties,canManipulate} from './object-properties.js';
 import {ObjectInspector,ObjectMessages} from './object-inspector.js';
+import {MessageHops,hopClearance} from './message-hops.js';
 import {applySceneTheme} from './theme.js';
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
@@ -53,6 +54,7 @@ ecology.sticks.canTake=o=>state.drag?.object!==o&&!state.objects.some(child=>chi
 ecology.sticks.onTake=o=>{const selected=state.selected;remove(o);if(selected&&selected!==o)select(selected);return !state.objects.includes(o);};
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
+const messageHops=new MessageHops(),reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
 const cursorGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.24,.012,-.24),new THREE.Vector3(.24,.012,-.24),new THREE.Vector3(.24,.012,.24),new THREE.Vector3(-.24,.012,.24),new THREE.Vector3(-.24,.012,-.24)]);const gridCursor=new THREE.Line(cursorGeometry,new THREE.LineBasicMaterial({color:0x57794a,transparent:true,opacity:.7}));gridCursor.visible=false;scene.add(gridCursor);
 const cableMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9,transparent:true,depthWrite:false});
@@ -132,7 +134,7 @@ function remove(o,force=false){
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
-function reset(){windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;addHole([0,0],2);addObject('arch',[0,-3]);addObject('fountain',[0,3]);addObject('bench',[-3,0]);select(null);terrain.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
+function reset(){messageHops.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;addHole([0,0],2);addObject('arch',[0,-3]);addObject('fountain',[0,3]);addObject('bench',[-3,0]);select(null);terrain.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
 function ray(event){const r=canvas.getBoundingClientRect();pointer.set((event.clientX-r.left)/r.width*2-1,-(event.clientY-r.top)/r.height*2+1);raycaster.setFromCamera(pointer,camera);}
@@ -364,14 +366,17 @@ function tick(now){
  if(!state.paused)terrain.step(dt,wind);
  // Meadow shadows update at 30 Hz; water shading and physical motion remain smooth.
  shadowClock+=dt;if(shadowClock>=1/30){renderer.shadowMap.needsUpdate=true;shadowClock=0;}
- presentation.step(dt);presentation.withPresentation(()=>{
-  for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
+ presentation.step(dt);
+ const dragged=state.drag?.object?new Set(stacks.members(state.drag.object)):new Set();
+ messageHops.step(dt,state.objects,{disabled:state.paused||reducedMotion.matches,busy:o=>dragged.has(o)||presentation.motion.has(o)||messages.player.object===o,clear:(members,height)=>hopClearance(stacks,members,height)});
+ presentation.withPresentation(()=>messageHops.withPresentation(()=>{
+  for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
   if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas);
   dither.uniforms.hangingBlur.value=+hangingFocus.render(renderer,camera,state.objects);
   refraction.render(renderer,scene,camera,[...terrain.views.map(v=>v.mesh),...[...ecology.bathViews.values()].map(v=>v.mesh)]);
   composer.render();
- });
- for(const o of presentation.motion.keys())if(o.hanging)updateCable(o);
+ }));
+ for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
