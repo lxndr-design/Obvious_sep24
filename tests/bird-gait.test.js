@@ -38,7 +38,7 @@ test('pigeons bob their heads while walking, keep eyes attached, and settle when
 test('duck followers settle near a stopped leader instead of orbiting its heading',()=>{
  const terrain=new HoleTerrain(new THREE.Scene(),new THREE.MeshStandardMaterial());terrain.rebuild(new HoleLayout([{id:1,x:0,z:0,size:4}]));
  const flock=new DuckFlock();flock.nextArrival=0;flock.step(1/60,terrain);flock.nextArrival=flock.nextMove=Infinity;flock.target=new THREE.Vector3(.6,0,0);
- flock.ducks.forEach((d,i)=>{d.position.set(i?-.8:.6,-.09,0);d.state='swimming';d.dabbleAt=Infinity;d.opacity=1;});
+ flock.ducks.forEach((d,i)=>{d.position.set(i?-.8:.6,-.09,0);d.state='swimming';d.medium='water';d.swimming=true;d.dabbleAt=Infinity;d.opacity=1;});
  advance(dt=>flock.step(dt,terrain),12);const positions=flock.ducks.map(d=>d.position.clone());let travel=0;
  advance(dt=>{const before=flock.ducks.map(d=>d.position.clone());flock.step(dt,terrain);travel+=flock.ducks.reduce((sum,d,i)=>sum+Math.hypot(d.position.x-before[i].x,d.position.z-before[i].z),0);},10);
  assert.ok(travel<.001,`settled flock travel ${travel}`);assert.ok(positions[0].distanceTo(positions[1])>.5&&positions[0].distanceTo(positions[1])<1);
@@ -49,4 +49,12 @@ test('foraging follows a straight waypoint, pauses, and abandons a newly blocked
  advance(dt=>c.step(dt,[site]),1);assert.ok(b.position.x>.35);assert.equal(b.position.z,0);const rest=b.position.clone();advance(dt=>c.step(dt,[site]),.5);assert.ok(b.position.distanceTo(rest)<1e-8,'pause between walks');
  b.walkTarget.set(2,.08,0);c.step(1/60,[site],null,p=>p.x<=rest.x+.001);assert.ok(b.walkTarget.distanceTo(b.position)<1e-8,'blocked waypoint abandoned');
  advance(dt=>c.step(dt,[site]),4);assert.ok(b.position.distanceTo(rest)>.1,'can choose a new route after stopping');
+});
+
+test('flying ducks unfold and flap marked wings, tuck feet, and fold wings again on landing',()=>{
+ const view=duckMesh('mallard'),duck={id:1,state:'arriving',swimming:false,velocity:new THREE.Vector3(1,-1,0),yaw:0,flightPitch:-.12};
+ let low=Infinity,high=-Infinity;
+ advance(dt=>{poseDuckGait(view,duck,dt);view.group.updateMatrixWorld(true);const tip=new THREE.Vector3(-.35,-.05,0).applyMatrix4(view.wings[1].matrixWorld);low=Math.min(low,tip.y);high=Math.max(high,tip.y);},1);
+ assert.ok(high-low>.25,'wing tips travel vertically through the flap stroke');assert.ok(view.wings.every(w=>w.children.length===2),'colored patches stay on wing pivots');assert.ok(view.feet.every(f=>!f.visible));
+ duck.state='swimming';duck.swimming=true;advance(dt=>poseDuckGait(view,duck,dt),1);assert.ok(view.wings.every(w=>Math.abs(w.rotation.x)+Math.abs(w.rotation.y)<.0001));
 });

@@ -12,6 +12,7 @@ export const DUCK_VARIANTS={
  white:{name:'White duck',feather:0xf5f3e9,breast:0xf5f3e9,head:0xf9f7ed,collar:0xf5f3e9,wing:0xe5e4da,patch:null,bill:0xe7a13c,foot:0xda8a30,eye:0x24251f}
 };
 const duckTypes=Object.keys(DUCK_VARIANTS);
+const flockPosition=d=>d.state==='arriving'?d.flightTo:d.position;
 export class DuckFlock {
  constructor(random=seededRandom(2701)){this.random=random;this.variantRandom=seededRandom(421);this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.limit=4;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
  nextVariant(){const choices=duckTypes.filter(type=>!this.ducks.some(d=>d.variant===type));const available=choices.length?choices:duckTypes;return available[Math.floor(this.variantRandom()*available.length)];}
@@ -38,23 +39,56 @@ export class DuckFlock {
   const active=this.ducks.filter(d=>d.state!=='departing');
   const count=active.length>=2?1:2;if(this.ducks.length+count>this.limit)return false;
   for(const view of terrain?.views??[]){
-   if(active.length&&this.surface(terrain,active[0].position)?.view!==view)continue;
+   if(active.length&&this.surface(terrain,flockPosition(active[0]))?.view!==view)continue;
    const points=[];
    for(let i=0;i<60&&points.length<count;i++){
     const rect=view.rects[Math.floor(this.random()*view.rects.length)];
     const p=new THREE.Vector3(THREE.MathUtils.lerp(rect.x0+.3,rect.x1-.3,this.random()),0,THREE.MathUtils.lerp(rect.z0+.3,rect.z1-.3,this.random()));
-    if(!contains(rect,p.x,p.z,-.24)||!this.clear(p,terrain,isClear)||[...active.map(d=>d.position),...points].some(q=>distance(p,q)<.5))continue;
-    if(active.length&&distance(p,active[0].position)>1.5)continue;
-    const first=points[0]??active[0]?.position;if(first&&(distance(first,p)>1.5||!this.connected(first,p,terrain,isClear)))continue;
+    if(!contains(rect,p.x,p.z,-.24)||!this.clear(p,terrain,isClear)||[...active.map(flockPosition),...points].some(q=>distance(p,q)<.5))continue;
+    if(active.length&&distance(p,flockPosition(active[0]))>1.5)continue;
+    const first=points[0]??(active[0]&&flockPosition(active[0]));if(first&&(distance(first,p)>1.5||!this.connected(first,p,terrain,isClear)))continue;
     p.y=this.surface(terrain,p).y+.10;points.push(p);
    }
    if(points.length!==count)continue;
-   for(const p of points)this.ducks.push({id:++this.sequence,species:'duck',variant:this.nextVariant(),scale:.92+this.random()*.16,position:p,velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:true,medium:'water',dabbleAt:this.time+6+this.random()*9,dabbleAngle:0});
+   for(const p of points){
+    const d={id:++this.sequence,species:'duck',variant:this.nextVariant(),scale:.92+this.random()*.16,position:p.clone(),velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:false,medium:'air',dabbleAt:this.time+6+this.random()*9,dabbleAngle:0};
+    d.flightTo=p.clone();d.flightTo.y=this.surface(terrain,p).y+.10*d.scale;
+    d.flightFrom=d.flightTo.clone().add(new THREE.Vector3(-2.2,3.2,-1.4));d.position.copy(d.flightFrom);d.yaw=Math.atan2(-1.4,2.2);
+    this.ducks.push(d);
+   }
    if(!active.length){this.target=points[0].clone();this.shoreVisit=false;this.habitatUntil=this.time+25+this.random()*15;}this.nextMove=this.time+2;this.nextArrival=this.time+18+this.random()*12;return true;
   }
   return false;
  }
- depart(){for(const d of this.ducks){if(d.state==='departing')continue;d.state='departing';d.age=0;d.departOpacity=d.opacity;}this.nextArrival=this.time+22;}
+ depart(threat=null){
+  for(const d of this.ducks){
+   if(d.state==='departing')continue;
+   const away=threat?d.position.clone().sub(threat):new THREE.Vector3(Math.cos(d.yaw),0,-Math.sin(d.yaw));away.y=0;
+   if(away.lengthSq()<.01)away.set(-1,0,1);away.normalize();
+   d.flightFrom=d.position.clone();d.flightTo=d.position.clone().addScaledVector(away,3.8);d.flightTo.y+=3.8;
+   d.flightYaw=Math.atan2(-away.z,away.x);d.state='departing';d.age=0;d.departOpacity=d.opacity;d.hop=null;d.dabbleAngle=0;d.tilt=0;d.swimming=false;d.medium='air';
+  }
+  this.nextArrival=this.time+22;
+ }
+ updateFlight(d,dt,terrain){
+  const arriving=d.state==='arriving',t=Math.min(1,d.age/3),previous=d.position.clone();
+  if(arriving){
+   const water=this.surface(terrain,d.flightTo);if(!water){this.depart();return;}
+   d.flightTo.y=water.y+.10*d.scale;
+   // Arrive above the landing patch before easing down onto the water.
+   d.position.lerpVectors(d.flightFrom,d.flightTo,smooth(Math.min(1,t/.78)));
+   d.position.y=THREE.MathUtils.lerp(d.flightFrom.y,d.flightTo.y,smooth(t));
+   d.opacity=smooth(t/.65);
+   if(t===1){d.state='swimming';d.medium='water';d.swimming=true;d.velocity.set(0,0,0);d.flightPitch=0;return;}
+  }else{
+   // Rise first, then accelerate away from the pointer while fading out.
+   d.position.lerpVectors(d.flightFrom,d.flightTo,t*t);
+   d.position.y=THREE.MathUtils.lerp(d.flightFrom.y,d.flightTo.y,Math.sin(t*Math.PI/2));
+   d.opacity=d.departOpacity*(1-smooth((t-.18)/.82));
+   d.yaw+=Math.atan2(Math.sin(d.flightYaw-d.yaw),Math.cos(d.flightYaw-d.yaw))*(1-Math.exp(-9*dt));
+  }
+  d.velocity.copy(d.position).sub(previous).multiplyScalar(1/Math.max(dt,.001));d.flightPitch=arriving?-.12:.20;
+ }
  chooseTarget(terrain,isClear){
   const lead=this.ducks[0],view=this.surface(terrain,lead.position)?.view??terrain.views.reduce((best,v)=>!best||Math.hypot(v.x-lead.position.x,v.z-lead.position.z)<Math.hypot(best.x-lead.position.x,best.z-lead.position.z)?v:best,null);
   if(!view)return false;
@@ -98,19 +132,21 @@ export class DuckFlock {
  step(dt,terrain,pointer=null,isClear=()=>true){
   this.time+=dt;
   if(!terrain?.views.length){if(this.ducks.length)this.depart();}
-  if(pointer&&this.ducks.some(d=>distance(d.position,pointer)<1.6))this.depart();
+  if(pointer&&this.ducks.some(d=>d.state!=='departing'&&distance(d.position,pointer)<1.6))this.depart(pointer);
   if(this.ducks.length===1&&this.ducks[0].state!=='departing')this.depart();
   const lead=this.ducks[0];
-  if(lead&&!['departing','dabbling','entering-water','leaving-water'].includes(lead.state)&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
+  if(lead&&!['arriving','departing','dabbling','entering-water','leaving-water'].includes(lead.state)&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
   for(let i=0;i<this.ducks.length;i++){
    const d=this.ducks[i];d.age+=dt;
-   if(d.state==='departing'){d.opacity=d.departOpacity*(1-smooth(d.age/3));continue;}
+   if(d.state==='arriving'||d.state==='departing'){
+    if(d.state==='arriving'&&!this.clear(d.flightTo,terrain,isClear))this.depart();
+    this.updateFlight(d,dt,terrain);continue;
+   }
    if(!this.clear(d.position,terrain,isClear)){this.depart();break;}
    if(d.hop){this.updateHop(d,dt,terrain,isClear);continue;}
    const currentWater=this.surface(terrain,d.position);
    if(d.medium==='water'&&!currentWater){d.medium='land';d.swimming=false;d.state='walking';d.dabbleAngle=0;if(i===0){this.shoreVisit=true;this.habitatUntil=this.time+12;this.nextMove=this.time;}}
    if(d.state==='dabbling'&&currentWater){this.updateDabble(d,dt,currentWater);continue;}
-   if(d.state==='arriving'){d.opacity=smooth(d.age/2.5);if(d.age>=2.5)d.state='swimming';}
    if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;d.dabbleHold=3+this.random()*2;this.updateDabble(d,dt,currentWater);continue;}
    let target=this.target??d.position;
    if(i>0){
@@ -176,10 +212,12 @@ export function duckMesh(variant='mallard'){
  solid([[neckLeft(.207),.207],[neckRight(.207),.207],[.30,.27],[.24,.32],[.14,.30]],.19,head);
  const bill=new THREE.Mesh(new THREE.BoxGeometry(variant==='coot'?.10:.14,.035,variant==='coot'?.065:.11),billMaterial);bill.position.set(.34,.205,0);group.add(bill);
  const wings=[];
+ const mountWing=(mesh,pivot)=>{pivot.add(mesh);mesh.position.sub(pivot.position);return mesh;};
  for(const sign of [-1,1]){
   // A broad shoulder folds back to a narrow feather tip; no oval wing lobes.
-  const wing=solid([[.095,.077],[.045,.118],[-.095,.11],[-.285,.035],[-.14,.012],[-.005,.01],[.075,.037]],.018,wingMaterial,sign*.103);wings.push(wing);
-  if(speculum)solid([[-.11,.034],[-.19,.052],[-.145,.076],[-.065,.057]],.003,speculum,sign*.114);
+  const pivot=new THREE.Group();pivot.position.set(.065,.1,sign*.103);group.add(pivot);wings.push(pivot);
+  mountWing(solid([[.095,.077],[.045,.118],[-.095,.11],[-.285,.035],[-.14,.012],[-.005,.01],[.075,.037]],.018,wingMaterial,sign*.103),pivot);
+  if(speculum)mountWing(solid([[-.11,.034],[-.19,.052],[-.145,.076],[-.065,.057]],.003,speculum,sign*.114),pivot);
   const eye=new THREE.Mesh(new THREE.CircleGeometry(.013,6),eyeMaterial);eye.position.set(.239,.26,sign*.096);eye.rotation.y=sign>0?0:Math.PI;group.add(eye);
  }
  if(variant==='wood'||variant==='mandarin'){
@@ -193,7 +231,7 @@ export function duckMesh(variant='mallard'){
     // Fan-shaped cheek feathers and the tall orange sails distinguish mandarins.
     solid([[.25,.238],[.19,.25],[.095,.202],[.13,.164],[.21,.184]],.008,cheek,sign*.102);
     solid([[.245,.285],[.17,.292],[.115,.263],[.165,.270],[.245,.273]],.003,collar,sign*.109);
-    solid([[-.20,.06],[-.24,.23],[-.19,.265],[-.10,.19],[-.065,.085]],.016,cheek,sign*.12);
+    mountWing(solid([[-.20,.06],[-.24,.23],[-.19,.265],[-.10,.19],[-.065,.085]],.016,cheek,sign*.12),wings[sign<0?0:1]);
    }
   }
  }else if(variant==='coot'){
