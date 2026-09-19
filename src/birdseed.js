@@ -62,7 +62,7 @@ export class BirdseedField {
  read(){return {scattered:this.sequence,remaining:this.remaining,eaten:this.eaten,seeds:[...this.seeds.values()].map(s=>({id:s.id,position:s.position.toArray(),settled:s.settled,floating:!!s.floating,eatenBy:s.eatenBy}))};}
 }
 export class BirdseedView {
- constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(SEED_RADIUS,0),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,flatShading:true}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
+ constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(SEED_RADIUS,0),new THREE.MeshStandardMaterial({color:0x969696,roughness:1,flatShading:true}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
  update(){if(this.version===this.field.version)return;this.version=this.field.version;const seeds=this.field.available();this.mesh.count=seeds.length;seeds.forEach((s,i)=>{this.transform.position.copy(s.position);this.transform.scale.set(.75,.6,1);this.transform.quaternion.copy(s.rotation);this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);});this.mesh.instanceMatrix.needsUpdate=true;}
 }
 const feedingJitter=bird=>{const n=Math.sin((bird.id??0)*12.9898+(bird.fullness??0)*78.233)*43758.5453;return n-Math.floor(n);};

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {hedgeUVs} from './hedge-surface.js';
 import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
 import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
 import {makeBirdbath,BATH} from './bath-shapes.js';
@@ -17,7 +18,7 @@ export function makeHedge(R,joins=0){
   corner(a,c,1,1,!left&&!back);corner(b,c,-1,1,!right&&!back);
   corner(b,d,-1,-1,!right&&!front);corner(a,d,1,-1,!left&&!front);
  }
- const geometry=new ConvexGeometry(points);geometry.computeBoundingBox();
+ const geometry=hedgeUVs(new ConvexGeometry(points));geometry.computeBoundingBox();
  const positions=geometry.clone();positions.deleteAttribute('normal');positions.deleteAttribute('uv');const hull=mergeVertices(positions,1e-6);
  const parts=[{shape:new R.ConvexPolyhedron(new Float32Array(hull.attributes.position.array),new Uint32Array(hull.index.array)),offset:new THREE.Vector3()}];positions.dispose();hull.dispose();
  // An interior cuboid makes fully coincident hull contacts unambiguous to GJK.
