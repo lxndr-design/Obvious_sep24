@@ -10,13 +10,38 @@ export function makeGrandma(R,type='grandma'){
  const pants=outfit==='pants';
  const build=seated=>{
   const pieces=[],parts=[];
-  const add=(g,x,y,z)=>{
+  const add=(g,x,y,z,collide=true)=>{
    g.translate(x,y,z);const flat=g.index?g.toNonIndexed():g.clone();flat.deleteAttribute('uv');pieces.push(flat);
-   parts.push({shape:new R.ConvexPolyhedron(new Float32Array(g.attributes.position.array)),offset:new THREE.Vector3()});g.dispose();
+   if(collide)parts.push({shape:new R.ConvexPolyhedron(new Float32Array(g.attributes.position.array)),offset:new THREE.Vector3()});g.dispose();
   };
   const box=(w,h,d,x,y,z)=>add(new THREE.BoxGeometry(w,h,d),x,y,z);
   const ball=(r,x,y,z)=>add(new THREE.IcosahedronGeometry(r,1),x,y,z);
-  const limb=(a,b,r)=>{const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),delta=end.clone().sub(start),g=new THREE.CylinderGeometry(r,r,delta.length(),6);g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize()));const p=start.add(end).multiplyScalar(.5);add(g,p.x,p.y,p.z);};
+  const noodle=(points,r)=>{
+   const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p))),segments=8,sides=8;
+   const g=new THREE.TubeGeometry(curve,segments,r,sides,false),positions=g.attributes.position;
+   // Separate hulls follow the bend; a single hull would fill the elbow/knee gap.
+   for(let segment=0;segment<segments;segment++){
+    const vertices=[];for(let ring=segment;ring<=segment+1;ring++)for(let side=0;side<sides;side++){
+     const i=ring*(sides+1)+side;vertices.push(positions.getX(i),positions.getY(i),positions.getZ(i));
+    }
+    parts.push({shape:new R.ConvexPolyhedron(new Float32Array(vertices)),offset:new THREE.Vector3()});
+   }
+   add(g,0,0,0,false);
+  };
+  const shoe=(x,y,z)=>add(new THREE.SphereGeometry(1,12,6).scale(.082,.055,.145),x,y,z);
+  const seatedDress=()=>{
+   // Cross-sections sweep from the seat, over the knees, then down the shins.
+   // Below the seat, even the back of the fabric stays beyond its front edge.
+   const rings=[[-.13,.10,.24,.10,0],[.23,.115,.25,.115,0],[.43,.07,.27,.065,.06],[.48,-.12,.28,0,.10],[.48,-.23,.29,0,.10]];
+   const sides=12,vertices=[],indices=[];
+   for(const [z,y,width,dy,dz]of rings)for(let i=0;i<sides;i++){const a=i/sides*Math.PI*2;vertices.push(Math.cos(a)*width,y+Math.sin(a)*dy,z+Math.sin(a)*dz);}
+   for(let ring=0;ring<rings.length-1;ring++){
+    for(let side=0;side<sides;side++){const a=ring*sides+side,b=ring*sides+(side+1)%sides,c=a+sides,d=b+sides;indices.push(a,b,c,b,d,c);}
+    parts.push({shape:new R.ConvexPolyhedron(new Float32Array(vertices.slice(ring*sides*3,(ring+2)*sides*3))),offset:new THREE.Vector3()});
+   }
+   for(let side=1;side<sides-1;side++){indices.push(0,side+1,side);const end=(rings.length-1)*sides;indices.push(end,end+side,end+side+1);}
+   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));g.setIndex(indices);g.computeVertexNormals();add(g,0,0,0,false);
+  };
   // Local +Z is forward. Her cardigan, skirt, bun and glasses stay white.
   add(new THREE.CylinderGeometry(.19,.24,.43,8),0,.37,0);
   ball(.165,0,.72,.025);
@@ -29,23 +54,25 @@ export function makeGrandma(R,type='grandma'){
    add(new THREE.CylinderGeometry(.27,.27,.03,12),0,.875,.025);
    add(new THREE.CylinderGeometry(.16,.20,.13,10),0,.945,.025);
   }
-  add(new THREE.ConeGeometry(.055,.11,4).rotateX(Math.PI/2),0,.70,.19);
   for(const x of [-.072,.072])add(new THREE.TorusGeometry(.052,.010,4,8),x,.745,.177);
   box(.038,.016,.018,0,.745,.18);
   if(seated){
-   box(pants?.42:.48,.20,pants?.28:.42,0,.10,.06);
+   if(pants)box(.42,.20,.28,0,.10,.06);else seatedDress();
    for(const x of [-.13,.13]){
-    limb([x,.10,.1],[x,.10,.43],pants?.095:.065);
-    limb([x,.05,.46],[x,-.30,.44],pants?.085:.052);
-    box(.15,.09,.26,x,-.345,.49);
+    if(pants)noodle([[x,.105,.08],[x,.105,.30],[x,.045,.46],[x,-.12,.48],[x,-.30,.44]],.083);
+    else noodle([[x,-.10,.46],[x+.012,-.21,.47],[x,-.30,.44]],.052);
+    shoe(x,-.345,.49);
    }
   }else{
-   if(pants){box(.43,.20,.30,0,.10,0);for(const x of [-.13,.13])limb([x,.07,0],[x,-.69,0],.10);}
-   else add(new THREE.CylinderGeometry(.22,.31,.72,8),0,-.17,0);
-   for(const x of [-.13,.13]){limb([x,-.49,0],[x,-.69,0],.05);box(.15,.09,.26,x,-.735,.06);}
+   if(pants)box(.43,.20,.30,0,.10,0);
+   else add(new THREE.CylinderGeometry(.22,.31,.72,12),0,-.17,0);
+   for(const x of [-.13,.13]){
+    noodle(pants?[[x,.07,0],[x*1.08,-.23,.025],[x*.92,-.47,-.015],[x,-.69,0]]:[[x,-.49,0],[x*1.04,-.59,.02],[x,-.69,0]],pants?.095:.05);
+    shoe(x,-.735,.06);
+   }
   }
-  limb([-.20,.53,0],[-.29,.27,.11],.065);limb([-.29,.27,.11],[-.18,.20,.29],.055);
-  limb([.20,.53,0],[.30,.31,.15],.065);limb([.30,.31,.15],[.24,.27,.41],.052);
+  noodle([[-.20,.53,0],[-.27,.39,.035],[-.28,.26,.14],[-.18,.20,.29]],.058);
+  noodle([[.20,.53,0],[.28,.41,.04],[.30,.29,.19],[.24,.27,.41]],.056);
   ball(.065,.24,.27,.41);ball(.065,-.18,.20,.29);
   box(.24,.29,.16,-.15,.16,.31); // seed bag held at her waist
   const geometry=mergeGeometries(pieces);pieces.forEach(g=>g.dispose());geometry.computeBoundingBox();
