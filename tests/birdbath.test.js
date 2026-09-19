@@ -58,7 +58,7 @@ test('ecology discovers placed baths, drives real splash geometry and retires mo
  const scene=new THREE.Scene(),p=new PendulumScene(R),collision=new CollisionScene(R),wind=new WindField();wind.strength=0;
  const bath=form('birdbath');scene.add(bath.mesh);collision.objects=[bath];p.add(bath);
  const e=new Ecology(scene,p,collision,wind,R);p.beforeStep=dt=>e.beforeStep(dt);
- advance(dt=>{p.step(dt);e.update(dt,null,0,0);},25);
+ advance(dt=>{p.step(dt);e.update(dt,null,0,0);},40);
  const view=e.bathViews.get(bath);assert.ok(view.splashCount>0);assert.ok(e.colony.birds.some(b=>b.pileId==='bath-42'));
  bath.mesh.position.x+=1;p.syncPose(bath);e.update(1/60,null,0,0);
  assert.ok(e.colony.birds.filter(b=>b.pileId==='bath-42').every(b=>b.state==='departing'));

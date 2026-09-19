@@ -24,7 +24,7 @@ export class Ecology {
   this.group=new THREE.Group();scene.add(this.group);this.material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.95,side:THREE.DoubleSide});
   this.strands=[];this.grassClusters=[];this.loose=[];this.piles=[];this.birdViews=new Map();this.bathViews=new Map();this.habitats=[];this.colony=new BirdColony();this.ducks=new DuckFlock();this.duckViews=new Map();this.waterContacts=new BirdWaterContacts();this.random=seededRandom(731);this.accumulator=0;this.pointer=null;this.pointerScreen=null;this.water=null;this.lastLeafRead=0;this.clock=0;
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
-  this.colony.onSplash=(position,site)=>this.bathViews.get(site.object)?.splash(position);
+  this.colony.onSplash=(position,site)=>{if(site.shore){const view=this.terrain?.at(position.x,position.z);if(view){const uv=this.terrain.uv(view,position);view.field.disturb(uv.u,uv.v,-.45,.075);view.field.emit(uv.u,uv.v,.8);}}else this.bathViews.get(site.object)?.splash(position);};
   this.sticks=new StickCollection(()=>this.collision.objects);
   this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
  }
@@ -105,7 +105,20 @@ export class Ecology {
    const dimensions=bathDimensions(o);
    if(active)baths.push({id:`bath-${o.id}`,kind:'bath',object:o,position:new THREE.Vector3(o.mesh.position.x,o.mesh.position.y-o.height/2,o.mesh.position.z),rimY:dimensions.height,waterY:dimensions.waterY,rimRadius:dimensions.rimRadius,joins:o.bathJoins??0});
   }
-  this.habitats=[...this.sticks.sites(),...this.food.sites(),...this.piles,...baths];
+  const shores=[];
+  for(const view of this.terrain?.views??[]){
+   let shore=null;
+   for(const r of view.rects){
+    for(const [x,z,dx,dz]of [[r.x0,(r.z0+r.z1)/2,-1,0],[r.x1,(r.z0+r.z1)/2,1,0],[(r.x0+r.x1)/2,r.z0,0,-1],[(r.x0+r.x1)/2,r.z1,0,1]]){
+     const bank=new THREE.Vector3(x+dx*.28,0,z+dz*.28),wet=new THREE.Vector3(x-dx*.24,0,z-dz*.24);
+     if(this.terrain.at(bank.x,bank.z)||this.terrain.at(wet.x,wet.z)!==view)continue;
+     shore={id:`shore-${view.holes.map(h=>h.id).join('-')}`,kind:'bath',shore:true,position:bank,waterPosition:wet,rimY:0,waterY:view.mesh.position.y,rimRadius:.001};
+     if(!this.clearSpot(bank.clone().add(new THREE.Vector3(0,.08,0)),shore)){shore=null;continue;}break;
+    }if(shore)break;
+   }
+   if(shore)shores.push(shore);
+  }
+  this.habitats=[...this.sticks.sites(),...this.food.sites(),...this.piles,...baths,...shores];
  }
  waterAt(position){
   for(const [o,view]of this.bathViews){
@@ -148,7 +161,7 @@ export class Ecology {
   if(!this.feedingMode&&camera&&this.pointerScreen)for(const bird of this.colony.birds){const projected=bird.position.clone().project(camera),x=(projected.x+1)*width/2,y=(1-projected.y)*height/2;if(Math.hypot(x-this.pointerScreen.x,y-this.pointerScreen.y)<60)this.colony.depart(bird,this.pointer);}
   if(!this.feedingMode&&camera&&this.pointerScreen&&this.ducks.ducks.some(duck=>{const p=duck.position.clone().project(camera);return Math.hypot((p.x+1)*width/2-this.pointerScreen.x,(1-p.y)*height/2-this.pointerScreen.y)<65;}))this.ducks.depart();
   for(const [id,view]of this.duckViews)if(!this.ducks.ducks.some(d=>d.id===id)){view.group.removeFromParent();view.group.traverse(o=>o.geometry?.dispose());view.materials.forEach(m=>m.dispose());this.duckViews.delete(id);}
-  for(const duck of this.ducks.ducks){let view=this.duckViews.get(duck.id);if(!view){view=duckMesh();this.duckViews.set(duck.id,view);this.group.add(view.group);}view.group.position.copy(duck.position);view.group.rotation.set(0,duck.yaw,duck.tilt??0);view.group.scale.setScalar(duck.scale);for(const m of view.materials)m.opacity=duck.opacity;view.feet.forEach((foot,i)=>{foot.visible=!duck.swimming;foot.rotation.z=duck.velocity.lengthSq()>.001?Math.sin(duck.stepPhase+i*Math.PI)*.35:0;});view.group.traverse(o=>{if(o.isMesh)o.castShadow=duck.opacity>.7;});}
+  for(const duck of this.ducks.ducks){let view=this.duckViews.get(duck.id);if(!view){view=duckMesh();this.duckViews.set(duck.id,view);this.group.add(view.group);}view.group.position.copy(duck.position);view.group.rotation.set(0,duck.yaw,(duck.dabbleAngle??0)+(duck.tilt??0));view.group.scale.setScalar(duck.scale);for(const m of view.materials)m.opacity=duck.opacity;view.feet.forEach((foot,i)=>{foot.visible=!duck.swimming;foot.rotation.z=duck.velocity.lengthSq()>.001?Math.sin(duck.stepPhase+i*Math.PI)*.35:0;});view.group.traverse(o=>{if(o.isMesh)o.castShadow=duck.opacity>.7;});}
   for(const [id,view]of this.birdViews)if(!this.colony.birds.some(b=>b.id===id)){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();this.birdViews.delete(id);}
   for(const bird of this.colony.birds){let view=this.birdViews.get(bird.id);if(!view){view=birdMesh(BIRD_PALETTES[(bird.id-1)%BIRD_PALETTES.length]);this.birdViews.set(bird.id,view);this.group.add(view.group);}view.group.position.copy(bird.position);view.group.rotation.y=bird.yaw;view.group.scale.setScalar(bird.scale??1);view.body.rotation.z=-bird.peck*.52;
    attachCarriedStick(view,bird);setBirdWings(view,bird.wingSpread,bird.wing);setBirdFatness(view,view.fatness+(bird.fatness-view.fatness)*(1-Math.exp(-8*delta)));for(const m of view.materials)m.opacity=bird.opacity;view.group.traverse(o=>{if(o.isMesh)o.castShadow=bird.opacity>.7;});

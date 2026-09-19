@@ -5,7 +5,7 @@ const smooth=t=>{t=THREE.MathUtils.clamp(t,0,1);return t*t*(3-2*t);};
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 
 export class DuckFlock {
- constructor(random=seededRandom(2701)){this.random=random;this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.limit=4;this.target=null;this.nextMove=0;this.shoreVisit=false;}
+ constructor(random=seededRandom(2701)){this.random=random;this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.limit=4;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
  surface(terrain,p){const view=terrain?.at(p.x,p.z);return view?{view,y:view.mesh.position.y+terrain.sample(view,p.x,p.z)}:null;}
  shoreDistance(terrain,view,p){
   let nearest=Infinity;
@@ -19,9 +19,9 @@ export class DuckFlock {
   const water=this.surface(terrain,p),point=p.clone();point.y=water?water.y+.13:.18;
   return isClear(point,{kind:'pool'}, {scale:1.75});
  }
- connected(a,b,terrain,isClear){
+ connected(a,b,terrain,isClear,medium=null){
   const steps=Math.max(1,Math.ceil(distance(a,b)/.12));
-  for(let i=1;i<=steps;i++)if(!this.clear(a.clone().lerp(b,i/steps),terrain,isClear))return false;
+  for(let i=1;i<=steps;i++){const p=a.clone().lerp(b,i/steps);if(!this.clear(p,terrain,isClear)||medium&&!!terrain.at(p.x,p.z)!==(medium==='water'))return false;}
   return true;
  }
  spawn(terrain,isClear){
@@ -40,22 +40,50 @@ export class DuckFlock {
     p.y=this.surface(terrain,p).y+.10;points.push(p);
    }
    if(points.length!==count)continue;
-   for(const p of points)this.ducks.push({id:++this.sequence,species:'duck',scale:.92+this.random()*.16,position:p,velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:true});
-   this.target=points[0].clone();this.nextMove=this.time+2;this.nextArrival=this.time+18+this.random()*12;return true;
+   for(const p of points)this.ducks.push({id:++this.sequence,species:'duck',scale:.92+this.random()*.16,position:p,velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:true,medium:'water',dabbleAt:this.time+6+this.random()*9,dabbleAngle:0});
+   if(!active.length){this.target=points[0].clone();this.shoreVisit=false;this.habitatUntil=this.time+25+this.random()*15;}this.nextMove=this.time+2;this.nextArrival=this.time+18+this.random()*12;return true;
   }
   return false;
  }
  depart(){for(const d of this.ducks){if(d.state==='departing')continue;d.state='departing';d.age=0;d.departOpacity=d.opacity;}this.nextArrival=this.time+22;}
  chooseTarget(terrain,isClear){
   const lead=this.ducks[0],view=this.surface(terrain,lead.position)?.view??terrain.views.reduce((best,v)=>!best||Math.hypot(v.x-lead.position.x,v.z-lead.position.z)<Math.hypot(best.x-lead.position.x,best.z-lead.position.z)?v:best,null);
-  if(!view)return false;this.shoreVisit=!this.shoreVisit;
+  if(!view)return false;
+  const changing=this.time>=this.habitatUntil;const shoreVisit=changing?!this.shoreVisit:this.shoreVisit;
   for(let i=0;i<32;i++){
    const rect=view.rects[Math.floor(this.random()*view.rects.length)];let p;
-   if(this.shoreVisit){const side=Math.floor(this.random()*4),x=THREE.MathUtils.lerp(rect.x0+.25,rect.x1-.25,this.random()),z=THREE.MathUtils.lerp(rect.z0+.25,rect.z1-.25,this.random());p=new THREE.Vector3(side===0?rect.x0-.65:side===1?rect.x1+.65:x,0,side===2?rect.z0-.65:side===3?rect.z1+.65:z);if(terrain.at(p.x,p.z))continue;}
+   if(shoreVisit){const side=Math.floor(this.random()*4),x=THREE.MathUtils.lerp(rect.x0+.25,rect.x1-.25,this.random()),z=THREE.MathUtils.lerp(rect.z0+.25,rect.z1-.25,this.random());p=new THREE.Vector3(side===0?rect.x0-.65:side===1?rect.x1+.65:x,0,side===2?rect.z0-.65:side===3?rect.z1+.65:z);if(terrain.at(p.x,p.z))continue;}
    else p=new THREE.Vector3(THREE.MathUtils.lerp(rect.x0+.3,rect.x1-.3,this.random()),0,THREE.MathUtils.lerp(rect.z0+.3,rect.z1-.3,this.random()));
-   if(this.connected(lead.position,p,terrain,isClear)){this.target=p;return true;}
+   if(this.connected(lead.position,p,terrain,isClear,changing?null:shoreVisit?'land':'water')){this.target=p;if(changing){this.shoreVisit=shoreVisit;this.habitatUntil=this.time+28+this.random()*20;}return true;}
   }
   return false;
+ }
+ beginHop(d,next,terrain,isClear){
+  const direction=next.clone().sub(d.position);direction.y=0;if(direction.lengthSq()<1e-10)return false;direction.normalize();
+  const from=d.position.clone(),entering=d.medium==='land';
+  for(const length of [.38,.5,.65]){
+   const to=from.clone().addScaledVector(direction,length),water=this.surface(terrain,to);
+   if(!!water!==entering||!this.clear(to,terrain,isClear)||this.ducks.some(other=>other!==d&&distance(to,other.position)<.36))continue;
+   to.y=water?water.y+.10*d.scale:.18*d.scale;
+   // Check the raised arc against objects, including geometry above a pool lip.
+   let valid=true;for(let i=1;i<=8;i++){const t=i/8,p=from.clone().lerp(to,t);p.y+=Math.sin(t*Math.PI)*.24;if(!isClear(p,{kind:'pool'},{scale:1.75})){valid=false;break;}}
+   if(!valid)continue;
+   d.hop={from,to,age:0,entering};d.state=entering?'entering-water':'leaving-water';d.velocity.set(0,0,0);d.dabbleAngle=0;return true;
+  }
+  return false;
+ }
+ updateHop(d,dt,terrain,isClear){
+  const h=d.hop;h.age+=dt;const t=Math.min(1,h.age/.62),p=h.from.clone().lerp(h.to,smooth(t));p.y+=Math.sin(t*Math.PI)*.24*d.scale;
+  if(!isClear(p,{kind:'pool'},{scale:1.75})){d.position.copy(h.from);d.hop=null;d.state=d.medium==='water'?'swimming':'walking';return;}
+  d.position.copy(p);
+  if(t===1){d.medium=this.surface(terrain,p)?'water':'land';d.swimming=d.medium==='water';d.state=d.swimming?'swimming':'walking';d.hop=null;d.dabbleAt=this.time+7+this.random()*10;}
+ }
+ updateDabble(d,dt,water){
+  d.dabbleAge=(d.dabbleAge??0)+dt;const t=d.dabbleAge;
+  // Forward is local +X: rotating about local Z puts the bill below the surface.
+  const amount=t<.35?smooth(t/.35):t<1.05?1:1-smooth((t-1.05)/.4);
+  d.dabbleAngle=-Math.PI/2*amount;d.position.y=water.y+.10*d.scale-.045*amount;d.velocity.set(0,0,0);
+  if(t>=1.45){d.state='swimming';d.dabbleAngle=0;d.dabbleAge=0;d.dabbleAt=this.time+9+this.random()*12;}
  }
  step(dt,terrain,pointer=null,isClear=()=>true){
   this.time+=dt;
@@ -63,14 +91,19 @@ export class DuckFlock {
   if(pointer&&this.ducks.some(d=>distance(d.position,pointer)<1.6))this.depart();
   if(this.ducks.length===1&&this.ducks[0].state!=='departing')this.depart();
   const lead=this.ducks[0];
-  if(lead&&lead.state!=='departing'&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
+  if(lead&&!['departing','dabbling','entering-water','leaving-water'].includes(lead.state)&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
   for(let i=0;i<this.ducks.length;i++){
    const d=this.ducks[i];d.age+=dt;
    if(d.state==='departing'){d.opacity=d.departOpacity*(1-smooth(d.age/3));continue;}
    if(!this.clear(d.position,terrain,isClear)){this.depart();break;}
+   if(d.hop){this.updateHop(d,dt,terrain,isClear);continue;}
+   const currentWater=this.surface(terrain,d.position);
+   if(d.medium==='water'&&!currentWater){d.medium='land';d.swimming=false;d.state='walking';d.dabbleAngle=0;if(i===0){this.shoreVisit=true;this.habitatUntil=this.time+12;this.nextMove=this.time;}}
+   if(d.state==='dabbling'&&currentWater){this.updateDabble(d,dt,currentWater);continue;}
    if(d.state==='arriving'){d.opacity=smooth(d.age/2.5);if(d.age>=2.5)d.state='swimming';}
+   if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;this.updateDabble(d,dt,currentWater);continue;}
    let target=this.target??d.position;
-   if(i>0){const leader=this.ducks[i-1],side=i%2?1:-1;target=leader.position.clone().add(new THREE.Vector3(-Math.cos(leader.yaw)*.57+Math.sin(leader.yaw)*side*.28,0,Math.sin(leader.yaw)*.57+Math.cos(leader.yaw)*side*.28));if(!this.connected(d.position,target,terrain,isClear))target=leader.position;}
+   if(i>0){const leader=this.ducks[i-1],side=i%2?1:-1;target=leader.position.clone().add(new THREE.Vector3(-Math.cos(leader.yaw)*.57+Math.sin(leader.yaw)*side*.28,0,Math.sin(leader.yaw)*.57+Math.cos(leader.yaw)*side*.28));if(!this.connected(d.position,target,terrain,isClear)||!!terrain.at(target.x,target.z)!==!this.shoreVisit)target=leader.position;}
    const delta=target.clone().sub(d.position);delta.y=0;const gap=delta.length(),water=this.surface(terrain,d.position),speed=water?.36:.31;
    const wanted=gap>.15?delta.multiplyScalar(Math.min(speed,gap*.85)/Math.max(gap,.001)):new THREE.Vector3();
    // Separate smoothly when the leader turns back through its followers.
@@ -78,9 +111,15 @@ export class DuckFlock {
    wanted.clampLength(0,speed);
    d.velocity.lerp(wanted,1-Math.exp(-3*dt));let next=d.position.clone().addScaledVector(d.velocity,dt);
    if(!this.clear(next,terrain,isClear)||this.ducks.some(other=>other!==d&&distance(next,other.position)<.34)){d.velocity.set(0,0,0);next=d.position.clone();}
-   d.position.x=next.x;d.position.z=next.z;const surface=this.surface(terrain,d.position),shore=surface?this.shoreDistance(terrain,surface.view,d.position):0;d.swimming=!!surface&&shore>.12;
-   // Walk smoothly up the shallow pool lip before crossing onto the floor.
-   const y=surface?THREE.MathUtils.lerp(.18*d.scale,surface.y+.10*d.scale,smooth(shore/.30)):.18*d.scale;
+   const nextWater=this.surface(terrain,next),changingMedium=!!nextWater!==(d.medium==='water');
+   // Anticipate the bank, so the body clears the lip instead of sliding through it.
+   const ahead=next.clone().addScaledVector(d.velocity.clone().normalize(),.16),aheadWater=this.surface(terrain,ahead);
+   if(changingMedium||!!aheadWater!==(d.medium==='water')){
+    if((this.shoreVisit&&d.medium==='water'||!this.shoreVisit&&d.medium==='land')&&this.beginHop(d,ahead,terrain,isClear))continue;
+    d.velocity.set(0,0,0);next=d.position.clone();
+   }
+   d.position.x=next.x;d.position.z=next.z;const surface=this.surface(terrain,d.position);d.swimming=d.medium==='water';
+   const y=surface&&d.swimming?surface.y+.10*d.scale:.18*d.scale;
    d.position.y=THREE.MathUtils.lerp(d.position.y,y,1-Math.exp(-9*dt));
    if(d.velocity.lengthSq()>.001){const yaw=Math.atan2(-d.velocity.z,d.velocity.x);d.yaw+=Math.atan2(Math.sin(yaw-d.yaw),Math.cos(yaw-d.yaw))*(1-Math.exp(-5*dt));d.stepPhase+=dt*9;}
    if(d.state!=='arriving')d.state=d.swimming?'swimming':'walking';
@@ -92,8 +131,8 @@ export class DuckFlock {
    if(!pointer||!(terrain?.views??[]).some(v=>distance(pointer,{x:v.x,z:v.z})<2.5)){if(!this.spawn(terrain,isClear))this.nextArrival=this.time+3;}
   }
  }
- reset(){this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.target=null;this.nextMove=0;this.shoreVisit=false;}
- read(){return this.ducks.map(d=>({id:d.id,species:'duck',scale:d.scale,state:d.state,position:d.position.toArray(),opacity:d.opacity}));}
+ reset(){this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
+ read(){return this.ducks.map(d=>({id:d.id,species:'duck',scale:d.scale,state:d.state,medium:d.medium,dabbleAngle:d.dabbleAngle,position:d.position.toArray(),opacity:d.opacity}));}
 }
 
 export function duckMesh(){

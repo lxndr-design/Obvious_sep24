@@ -27,6 +27,7 @@ export class BirdColony {
   b.lingerDuration=b.carriedStick?6+this.random()*6:12+this.random()*12;b.restYaw=b.yaw;b.target=b.position.clone();
  }
  bathPoint(site,angle,radius,y){
+  if(site.shore){const p=(radius===site.rimRadius?site.position:site.waterPosition).clone();p.y=y;return p;}
   if(site.joins&&radius===site.rimRadius){
    const sides=[{bit:1,x:-1,z:0},{bit:2,x:1,z:0},{bit:4,x:0,z:-1},{bit:8,x:0,z:1}].filter(s=>!(site.joins&s.bit));
    if(sides.length){const side=sides[Math.floor((angle/(Math.PI*2)%1)*sides.length)],along=Math.sin(angle*3)*.4;return site.position.clone().add(new THREE.Vector3(side.x?side.x*.68:along,y,side.z?side.z*.68:along));}
@@ -84,11 +85,12 @@ export class BirdColony {
     if(b.age>50+8*b.id)this.depart(b,null);
    }else if(b.state==='perching'){
     b.opacity=1;b.peck=.08*Math.sin(b.age*2);b.position.copy(b.target);
-    if(b.age>2.5*birdHopTempo(b)){
+    b.bathWait??=8+this.random()*6;
+    if(b.age>b.bathWait*birdHopTempo(b)){
      // One bird bathes at a time; companions wait at separated points on the rim.
      const occupied=this.birds.some(other=>other!==b&&other.pileId===b.pileId&&(other.state==='bathing'||other.state==='hopping'));
      const target=this.bathPoint(site,b.angle,.16,site.waterY+birdFootHeight(b)-.005);
-     if(!occupied&&clear(target,site))this.hop(b,target,'bathing');
+     if(!occupied&&clear(target,site)){b.bathDuration=1.5+this.random()*.8;this.hop(b,target,'bathing');}
     }
    }else if(b.state==='hopping'){
     const t=Math.min(1,b.age/(.65*Math.sqrt(birdScale(b))));b.position.lerpVectors(b.from,b.to,smooth(t));b.position.y+=Math.sin(t*Math.PI)*.20*birdScale(b);b.peck=0;
@@ -98,7 +100,7 @@ export class BirdColony {
     b.position.copy(b.to);b.position.y-=active?Math.sin(phase/.65*Math.PI)*.035:0;
     b.peck=active?Math.max(0,Math.sin(b.age*8))*.7:0;
     if(active&&Math.floor(b.age/.18)!==b.lastSplash){b.lastSplash=Math.floor(b.age/.18);this.onSplash?.(b.position,site);}
-    if(b.age>=4.8*birdHopTempo(b))this.hop(b,b.target.clone(),'perching');
+    if(b.age>=(b.bathDuration??2)*Math.sqrt(birdScale(b))){b.bathWait=9+this.random()*7;this.hop(b,b.target.clone(),'perching');}
    }else{
     const t=Math.min(1,b.age/2.5);b.position.lerpVectors(b.from,b.to,smooth(t));b.opacity=b.startOpacity*(1-smooth((t-.1)/.75));b.peck=0;
    }
@@ -109,8 +111,8 @@ export class BirdColony {
   if(this.time>=this.nextArrival&&this.birds.length<this.limit){
    const scale=sampleBirdScale(this.traitRandom),visitor={scale};
    const residents=site=>this.birds.filter(b=>b.pileId===site.id&&b.state!=='departing');
-   const candidates=sites.filter(p=>p.joins!==15&&available(p)&&!(p.kind==='seed'&&this.birds.some(b=>canNoticeSeed(b)&&b.foodInterest===p.id&&this.time<(b.noticeAt??0)+2))&&this.time-(this.quiet.get(p.id)??0)>(p.kind==='seed'?1.5:6)&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<3));
-   const preference=p=>residents(p).filter(settled).length+(smallBird(visitor)?residents(p).filter(b=>smallBird(b)&&settled(b)).length*4:0)+(p.kind==='seed'?10:p.kind==='stick'?6:p.kind==='bath'?2:0);
+   const candidates=sites.filter(p=>p.joins!==15&&available(p)&&!(p.kind==='seed'&&this.birds.some(b=>canNoticeSeed(b)&&b.foodInterest===p.id&&this.time<(b.noticeAt??0)+2))&&this.time-(this.quiet.get(p.id)??0)>(p.kind==='seed'?1.5:6)&&(!pointer||Math.hypot(pointer.x-p.position.x,pointer.z-p.position.z)>2.1)&&(p.kind!=='bath'||residents(p).length<(p.shore?1:3)));
+   const preference=p=>residents(p).filter(settled).length+(smallBird(visitor)?residents(p).filter(b=>smallBird(b)&&settled(b)).length*4:0)+(p.kind==='seed'?10:p.kind==='stick'?6:p.kind==='bath'?.25:0);
    candidates.sort((a,b)=>preference(b)-preference(a));
    // Try other habitats when the preferred site is crowded or obstructed.
    let spawned=false;
