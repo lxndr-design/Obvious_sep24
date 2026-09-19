@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 
-export function makeGrandma(R){
+export const GRANDMA_OUTFITS={skirt:'Skirt',pants:'Pants'};
+export const GRANDMA_HAIR={bun:'Bun · no hat',short:'Short hair · no hat',puffy:'Puffy hair',hat:'Sun hat'};
+export const GRANDMA_LABELS=Object.fromEntries(Object.entries(GRANDMA_OUTFITS).flatMap(([outfit,label])=>Object.entries(GRANDMA_HAIR).map(([hair,name])=>[`grandma-${outfit}-${hair}`,`Grandma · ${label.toLowerCase()} · ${name.toLowerCase()}`])));
+export function makeGrandma(R,type='grandma'){
+ const [,outfit='skirt',hair='bun']=type.split('-');
+ if(!GRANDMA_OUTFITS[outfit]||!GRANDMA_HAIR[hair])throw Error('Unknown Grandma variant');
+ const pants=outfit==='pants';
  const build=seated=>{
   const pieces=[],parts=[];
   const add=(g,x,y,z)=>{
@@ -13,19 +19,29 @@ export function makeGrandma(R){
   const limb=(a,b,r)=>{const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),delta=end.clone().sub(start),g=new THREE.CylinderGeometry(r,r,delta.length(),6);g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize()));const p=start.add(end).multiplyScalar(.5);add(g,p.x,p.y,p.z);};
   // Local +Z is forward. Her cardigan, skirt, bun and glasses stay white.
   add(new THREE.CylinderGeometry(.19,.24,.43,8),0,.37,0);
-  ball(.165,0,.72,.025);ball(.092,0,.83,-.09);
+  ball(.165,0,.72,.025);
+  if(hair==='bun')ball(.092,0,.83,-.09);
+  else if(hair==='short')add(new THREE.SphereGeometry(.175,8,4,0,Math.PI*2,0,Math.PI/2),0,.72,.025);
+  else if(hair==='puffy'){
+   for(let i=0;i<7;i++){const angle=i/7*Math.PI*2;ball(.083,Math.cos(angle)*.145,.825,Math.sin(angle)*.145+.015);}
+   ball(.105,0,.895,.015);
+  }else{
+   add(new THREE.CylinderGeometry(.27,.27,.03,12),0,.875,.025);
+   add(new THREE.CylinderGeometry(.16,.20,.13,10),0,.945,.025);
+  }
   add(new THREE.ConeGeometry(.055,.11,4).rotateX(Math.PI/2),0,.70,.19);
   for(const x of [-.072,.072])add(new THREE.TorusGeometry(.052,.010,4,8),x,.745,.177);
   box(.038,.016,.018,0,.745,.18);
   if(seated){
-   box(.48,.20,.42,0,.10,.06);
+   box(pants?.42:.48,.20,pants?.28:.42,0,.10,.06);
    for(const x of [-.13,.13]){
-    limb([x,.09,.1],[x,.09,.43],.065);
-    limb([x,.05,.43],[x,-.30,.41],.052);
-    box(.15,.09,.26,x,-.345,.46);
+    limb([x,.10,.1],[x,.10,.43],pants?.095:.065);
+    limb([x,.05,.46],[x,-.30,.44],pants?.085:.052);
+    box(.15,.09,.26,x,-.345,.49);
    }
   }else{
-   add(new THREE.CylinderGeometry(.22,.31,.72,8),0,-.17,0);
+   if(pants){box(.43,.20,.30,0,.10,0);for(const x of [-.13,.13])limb([x,.07,0],[x,-.69,0],.10);}
+   else add(new THREE.CylinderGeometry(.22,.31,.72,8),0,-.17,0);
    for(const x of [-.13,.13]){limb([x,-.49,0],[x,-.69,0],.05);box(.15,.09,.26,x,-.735,.06);}
   }
   limb([-.20,.53,0],[-.29,.27,.11],.065);limb([-.29,.27,.11],[-.18,.20,.29],.055);
@@ -38,10 +54,10 @@ export function makeGrandma(R){
   const height=geometry.boundingBox.max.y-geometry.boundingBox.min.y;
   return {geometry,parts,height,seated,seatY:-center,hand:new THREE.Vector3(.24,.27-center,.54),stacking:{foot:1,head:0,bottomY:geometry.boundingBox.min.y,headY:geometry.boundingBox.max.y,heads:[],points:[[-.13,.06],[.13,.06]]}};
  };
- const standing=build(false),sitting=build(true),grandmaForms={standing,sitting};return {...standing,grandmaForms};
+ const standing=build(false),sitting=build(true),grandmaForms={standing,sitting};return {...standing,grandmaForms,grandmaVariant:{outfit,hair}};
 }
 export function setGrandmaPose(o,seated,collision){
- if(o.type!=='grandma')return;
+ if(!o.grandmaForms)return;
  const form=o.grandmaForms[seated?'sitting':'standing'];
  Object.assign(o,form);o.mesh.geometry=form.geometry;if(o.debug)o.debug.geometry=form.geometry;
  collision?.prepared.delete(o);
@@ -72,7 +88,7 @@ export function disposeGrandma(o){if(o.grandmaForms)for(const form of Object.val
 export class GrandmaFeeding {
  constructor(random=Math.random){this.random=random;this.timers=new Map();this.busy=()=>false;this.scatters=0;}
  step(dt,objects,food){
-  const present=new Set(objects.filter(o=>o.type==='grandma'));
+  const present=new Set(objects.filter(o=>o.grandmaForms));
   for(const o of this.timers.keys())if(!present.has(o))this.timers.delete(o);
   for(const o of present){
    let timer=this.timers.get(o)??(4+this.random()*3);

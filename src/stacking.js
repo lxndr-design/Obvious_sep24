@@ -63,7 +63,7 @@ export class StackScene {
  clear(members,from,to){return (1-this.sweep(members,from,to))*from.distanceTo(to)<.001;}
  translate(members,delta){for(const o of members)o.mesh.position.add(delta);}
  move(root,target){
-  if(root.type==='grandma')return this.placeGrandma(root,target);
+  if(root.grandmaForms)return this.placeGrandma(root,target);
   if(!target.toArray().every(Number.isFinite))return false;
   const members=this.members(root),from=root.mesh.position.clone();if(from.x===target.x&&from.z===target.z)return true;
   const choices=this.supports(root,target.x,target.z,new Set(members)),zero=new THREE.Vector3();
@@ -79,7 +79,7 @@ export class StackScene {
   return false;
  }
  settle(root){
-  if(root.type==='grandma')return this.placeGrandma(root,root.mesh.position);
+  if(root.grandmaForms)return this.placeGrandma(root,root.mesh.position);
   const members=this.members(root),zero=new THREE.Vector3();
   for(const choice of this.supports(root,root.mesh.position.x,root.mesh.position.z,new Set(members))){
    if(choice.y>root.mesh.position.y+.001)continue;const delta=new THREE.Vector3(0,choice.y-root.mesh.position.y,0);
@@ -87,7 +87,7 @@ export class StackScene {
   }return false;
  }
  rotate(root){
-  if(root.type==='grandma'&&root.seated)return false;
+  if(root.grandmaForms&&root.seated)return false;
   const snapshot=this.snapshot(root),members=snapshot.map(s=>s.object),ignore=new Set(members),pivot=root.mesh.position.clone();
   for(let i=1;i<=18;i++){
    const rotation=new THREE.Quaternion().setFromAxisAngle(up,i*Math.PI/36);

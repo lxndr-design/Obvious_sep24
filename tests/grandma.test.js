@@ -34,3 +34,16 @@ test('Grandma tosses individually accounted physical seeds forward at occasional
  feeding.busy=()=>true;feeding.step(30,[g],food);assert.equal(food.remaining,6);feeding.busy=()=>false;stacks.placeGrandma(g,new THREE.Vector3());p.syncPose(g);g.mesh.rotation.y=Math.PI;feeding.step(15,[g],food);assert.equal(food.remaining,12);assert.ok(food.available().slice(6).every(s=>s.body.linvel().z<-.7));
  feeding.step(30,[],food);assert.equal(food.remaining,12);assert.equal(feeding.timers.size,0);feeding.reset();assert.equal(feeding.scatters,0);food.reset();p.dispose();
 });
+
+test('every Grandma outfit and hairstyle keeps both poses, bench support and seed scattering',()=>{
+ const {collision,stacks,p,add}=setup(),bench=add('bench',0),food=new BirdseedField(()=>.5),feeding=new GrandmaFeeding(()=>.5);food.attachPhysics(p.world,R);
+ for(const type of Object.keys(LABELS).filter(type=>type.startsWith('grandma-'))){
+  const g=add(type,3);assert.ok(g.grandmaVariant);const stand=g.geometry;
+  assert.ok(dragFloor(stacks,g,new THREE.Vector3()).moved,`${type} fits on bench`);assert.ok(g.seated);assert.notEqual(g.geometry,stand);assert.ok(collision.canPlace(g,g.mesh.position));p.syncPose(g);
+  assert.ok(g.mesh.position.y+g.geometry.boundingBox.min.y>.3,'feet dangle');
+  const before=food.remaining;feeding.step(6,[g],food);assert.equal(food.remaining,before+6,`${type} feeds birds`);food.reset();feeding.reset();
+  assert.ok(dragFloor(stacks,g,new THREE.Vector3(3,0,0)).moved);assert.equal(g.geometry,stand);assert.equal(g.support,null);
+  collision.objects.splice(collision.objects.indexOf(g),1);p.remove(g);for(const form of Object.values(g.grandmaForms))form.geometry.dispose();
+ }
+ p.dispose();
+});

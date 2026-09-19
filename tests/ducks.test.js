@@ -66,3 +66,16 @@ test('a stationary dabbling duck pushes water around its head',()=>{
  const field=new WaveField(41,2);field.energy=0;const contacts=new BirdWaterContacts(),water=()=>({field,y:0,uv:p=>({u:p.x/2+.5,v:p.z/2+.5})});const d={id:1,species:'duck',scale:1,opacity:1,position:new THREE.Vector3(0,.1,0),yaw:0,dabbleAngle:0};
  contacts.step(1/60,[d],water);field.reset();d.dabbleAngle=-.3;contacts.step(1/60,[d],water);assert.ok(field.velocity.some(v=>v!==0));
 });
+
+test('waterfowl varieties have distinct colors and low-poly markings and mix within a flock',async()=>{
+ const {DUCK_VARIANTS}=await import('../src/ducks.js');const signatures=new Set();
+ for(const type of Object.keys(DUCK_VARIANTS)){
+  const view=duckMesh(type);let triangles=0;
+  view.group.traverse(o=>{if(o.isMesh){assert.ok(o.geometry.attributes.position.array.every(Number.isFinite));triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;}});
+  assert.equal(view.wings.length,2);assert.ok(triangles<450,`${type}: ${triangles} triangles`);signatures.add(view.materials.map(m=>m.color.getHexString()).join(','));
+  view.group.traverse(o=>o.geometry?.dispose());view.materials.forEach(m=>m.dispose());
+ }
+ assert.equal(signatures.size,5);
+ const f=new DuckFlock(),terrain=pool();f.nextArrival=0;f.step(1/60,terrain);f.nextArrival=0;f.step(1/60,terrain);f.nextArrival=0;f.step(1/60,terrain);
+ assert.equal(f.ducks.length,4);assert.equal(new Set(f.ducks.map(d=>d.variant)).size,4);assert.ok(f.read().every(d=>d.variantName));
+});
