@@ -72,6 +72,7 @@ export class Ecology {
  setPointer(point,screen){this.pointer=point?.clone()??null;this.pointerScreen=screen??null;}
  beforeStep(dt){
   this.wind.step(dt);
+  this.food.beforeStep(dt,p=>this.waterAt(p));
   for(const o of this.loose){if(!o.body.isDynamic())continue;const p=o.body.translation(),velocity=o.body.linvel(),w=this.wind.sample(p.x,p.z),mass=o.body.mass();o.body.resetForces(false);o.body.resetTorques(false);
    const active=w.lengthSq()>1e-8;
    if(active){const arm=o.type==='seed'?.035:.012,angular=o.body.angvel();

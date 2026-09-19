@@ -32,3 +32,30 @@ test('cautious birds approach more slowly and elevated seed is eaten at its actu
  assert.ok(birds[0].position.x<birds[1].position.x-.4);assert.ok(Math.abs(birds[0].position.y-1.38)<1e-5);
  const f=new BirdseedField(()=>.5);f.scatter(new THREE.Vector3(0,1.3,0));const b={id:1,caution:.5,state:'feeding',position:new THREE.Vector3(0,1.38,0),fullness:0,capacity:1};advance(dt=>feedBird(b,{...f.patches[0],field:f},dt),1);assert.equal(b.fullness,1);assert.equal(f.eaten,1);
 });
+
+test('floating grains follow live pool, bath and fountain water, preserve their ledger, and fall when a basin moves',async()=>{
+ const {Ecology}=await import('../src/ecology.js'),{CollisionScene}=await import('../src/collision.js'),{HoleLayout}=await import('../src/terrain.js'),{HoleTerrain}=await import('../src/hole-terrain.js'),{WindField}=await import('../src/wind.js'),{bathDimensions}=await import('../src/bath-shapes.js');
+ const scene=new THREE.Scene(),p=new PendulumScene(R),collision=new CollisionScene(R),wind=new WindField();wind.strength=0;
+ const layout=new HoleLayout([{id:1,x:0,z:0,size:2}]),terrain=new HoleTerrain(scene,new THREE.MeshStandardMaterial());terrain.rebuild(layout);p.setTerrain(layout);collision.setTerrain(layout);
+ const bath=createForm('birdbath',2),fountain=createForm('fountain',3);bath.mesh.position.x=3;fountain.mesh.position.x=-3;
+ for(const o of [bath,fountain]){p.add(o);collision.objects.push(o);}
+ const e=new Ecology(scene,p,collision,wind,R);e.terrain=terrain;e.colony.nextArrival=e.ducks.nextArrival=Infinity;e.syncBaths();p.beforeStep=dt=>e.beforeStep(dt);
+ const points=[new THREE.Vector3(0,terrain.views[0].mesh.position.y,0),new THREE.Vector3(3.25,bathDimensions(bath).waterY,0),new THREE.Vector3(-2.75,bathDimensions(fountain).waterY,0)];
+ for(const point of points)e.scatterFood(point);const grains=e.food.available();
+ const step=dt=>{p.step(dt);e.update(dt,null,0,0);terrain.step(dt,wind);};advance(step,3);
+ for(const seed of grains){const water=e.waterAt(seed.position);assert.ok(seed.floating&&seed.settled);assert.ok(seed.position.y>water.y,'grain center stays visible above water');assert.ok(seed.position.y-water.y<.04);}
+ assert.equal(e.food.remaining,3);assert.equal(e.food.sites().reduce((n,s)=>n+s.count,0),3);
+ const seed=grains[0],initial=seed.position.y;terrain.disturb(seed.position.x,seed.position.z,.8);let peak=0;
+ advance(dt=>{step(dt);peak=Math.max(peak,Math.abs(seed.position.y-initial));assert.ok(Math.abs(seed.position.y-e.waterAt(seed.position).y)<.055);},2);
+ assert.ok(peak>.002,'grain bobs with real displaced water');
+ const afloat=grains[1];bath.mesh.position.x=5;p.syncPose(bath);e.syncBaths();advance(step,3);assert.equal(afloat.floating,false);assert.ok(afloat.position.y<.06,'grain falls to the floor when its bath moves away');
+ const handle=seed.body.handle;assert.equal(e.food.claim(seed.position,91,seed.patch),seed);assert.ok(e.food.consume(seed.id,91));assert.equal(p.world.getRigidBody(handle),null);assert.equal(e.food.remaining+e.food.eaten,3);
+ e.reset();p.dispose();
+});
+
+test('water buoyancy leaves grains on raised solid supports alone',()=>{
+ const p=new PendulumScene(R),table=createForm('table-square-full');p.add(table);const f=new BirdseedField(()=>.5);f.attachPhysics(p.world,R);
+ const water={y:-.19,uv:()=>({u:.5,v:.5}),field:{disturb:()=>assert.fail('dry grain must not disturb water')}};p.beforeStep=dt=>f.beforeStep(dt,()=>water);
+ f.drop(new THREE.Vector3(0,table.height,0));advance(dt=>{p.step(dt);f.updatePhysics(dt);},3);
+ const seed=f.available()[0];assert.equal(seed.floating,false);assert.ok(seed.settled);assert.ok(Math.abs(seed.position.y-table.height)<.06);p.dispose();
+});

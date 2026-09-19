@@ -22,11 +22,32 @@ export class BirdseedField {
    this.world.createCollider(new R.ColliderDesc(this.seedShape).setDensity(.5).setFriction(.65).setRestitution(.18).setContactSkin(.001),seed.body);
   }return 1;
  }
+ beforeStep(dt,waterAt){
+  for(const seed of this.available()){
+   const body=seed.body;if(!body)continue;
+   const p=body.translation(),v=body.linvel(),water=waterAt(p);
+   const floating=!!water&&p.y<=water.y+SEED_HEIGHT+.025;
+   body.resetForces(false);
+   if(floating){
+    // A light grain rides mostly above the surface. A damped spring follows
+    // actual wave height while retaining rigid-body collisions with the rim.
+    if(!seed.floating){
+     body.setLinvel({x:v.x,y:Math.max(v.y,-.18),z:v.z},true);
+     const uv=water.uv(p);water.field.disturb(uv.u,uv.v,-.035,.045);
+    }
+    const velocity=body.linvel(),mass=body.mass(),target=water.y+SEED_HEIGHT*.55;
+    body.addForce({x:-velocity.x*mass*4,y:mass*(-this.world.gravity.y+(target-p.y)*180-velocity.y*22),z:-velocity.z*mass*4},true);
+    body.setAngvel({x:body.angvel().x*Math.exp(-8*dt),y:body.angvel().y*Math.exp(-4*dt),z:body.angvel().z*Math.exp(-8*dt)},true);
+   }
+   if(floating!==!!seed.floating){seed.stable=0;seed.settled=false;seed.owner=null;this.version++;}
+   seed.floating=floating;
+  }
+ }
  updatePhysics(dt){
   let changed=false;for(const seed of this.available())if(seed.body){const p=seed.body.translation(),q=seed.body.rotation(),v=seed.body.linvel();
    if(seed.position.distanceToSquared(p)>1e-12||seed.rotation.angleTo(q)>1e-5)changed=true;
-   seed.position.copy(p);seed.rotation.copy(q);seed.stable=Math.hypot(v.x,v.y,v.z)<.065?seed.stable+dt:0;
-   const settled=(seed.body.isSleeping()||seed.stable>.25)&&p.y>=0;if(settled!==seed.settled){seed.settled=settled;seed.owner=null;changed=true;}
+   seed.position.copy(p);seed.rotation.copy(q);seed.stable=(seed.floating?Math.hypot(v.x,v.z)<.12:Math.hypot(v.x,v.y,v.z)<.065)?seed.stable+dt:0;
+   const settled=(seed.body.isSleeping()||seed.stable>.25)&&(seed.floating||p.y>=0);if(settled!==seed.settled){seed.settled=settled;seed.owner=null;changed=true;}
   }if(changed)this.version++;
  }
  removeBody(seed){if(seed.body){this.world.removeRigidBody(seed.body);seed.body=null;}}
@@ -37,7 +58,7 @@ export class BirdseedField {
  release(bird){for(const seed of this.seeds.values())if(seed.owner===bird&&seed.eatenBy===null)seed.owner=null;}
  consume(id,bird){const seed=this.seeds.get(id);if(!seed||seed.eatenBy!==null||seed.owner!==bird||!seed.settled)return false;this.removeBody(seed);seed.eatenBy=bird;seed.owner=null;this.eaten++;this.version++;return true;}
  reset(){for(const seed of this.seeds.values())this.removeBody(seed);this.seeds.clear();this.patches=[];this.sequence=this.patchSequence=this.eaten=0;this.version++;}
- read(){return {scattered:this.sequence,remaining:this.remaining,eaten:this.eaten,seeds:[...this.seeds.values()].map(s=>({id:s.id,position:s.position.toArray(),settled:s.settled,eatenBy:s.eatenBy}))};}
+ read(){return {scattered:this.sequence,remaining:this.remaining,eaten:this.eaten,seeds:[...this.seeds.values()].map(s=>({id:s.id,position:s.position.toArray(),settled:s.settled,floating:!!s.floating,eatenBy:s.eatenBy}))};}
 }
 export class BirdseedView {
  constructor(scene,field){this.field=field;this.version=-1;this.mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(SEED_RADIUS,0),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,flatShading:true}),field.capacity);this.mesh.count=0;this.mesh.castShadow=this.mesh.receiveShadow=true;this.mesh.frustumCulled=false;scene.add(this.mesh);this.transform=new THREE.Object3D();}
