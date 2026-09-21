@@ -28,7 +28,7 @@ export function signPlacement(collision,o,x,z,pole=null){
   const order=o.support===host?[o.signSlot,...slots.keys()]:[...slots.keys()];
   for(const slot of new Set(order)){
    if(!Number.isInteger(slot)||used.has(slot))continue;
-   const position=new THREE.Vector3(0,slots[slot],.125).applyQuaternion(o.mesh.quaternion).add(host.mesh.position);
+   const position=new THREE.Vector3(0,slots[slot]*(host.modelScale??1),.085*(host.modelScale??1)+.04*(o.modelScale??1)).applyQuaternion(o.mesh.quaternion).add(host.mesh.position);
    if(collision.canPlace(o,position))return {position,support:host,signSlot:slot};
   }
  }
@@ -71,8 +71,8 @@ export function decorateSign(o){
  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
  const uniforms={map:{value:texture},glimmer:{value:-1}};
  const material=new THREE.ShaderMaterial({uniforms,transparent:true,depthWrite:false,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:'uniform sampler2D map; uniform float glimmer; varying vec2 vUv; void main(){vec4 ink=texture2D(map,vUv);float shine=(1.-smoothstep(0.,.13,abs(vUv.x-vUv.y*.18-glimmer)))*step(0.,glimmer);gl_FragColor=vec4(mix(ink.rgb,vec3(1.),shine),max(ink.a,shine*.55));\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}'});
- const geometry=new THREE.PlaneGeometry(o.sign.width*.78,.27),faces=[];
- for(const side of [1,-1]){const face=new THREE.Mesh(geometry,material);face.position.set(-.06+o.sign.width*.46,0,side*.037);if(side<0)face.rotation.y=Math.PI;face.raycast=()=>{};o.mesh.add(face);faces.push(face);}
+ const scale=o.modelScale??1,geometry=new THREE.PlaneGeometry(o.sign.width*.78*scale,.27*scale),faces=[];
+ for(const side of [1,-1]){const face=new THREE.Mesh(geometry,material);face.position.set((-.06+o.sign.width*.46)*scale,0,side*.037*scale);if(side<0)face.rotation.y=Math.PI;face.raycast=()=>{};o.mesh.add(face);faces.push(face);}
  o.signVisual={canvas,texture,material,geometry,uniforms,faces,hover:false,time:0};updateSignFace(o);
 }
 export function stepSign(o,dt,hovered,reduced=false){if(!o.signVisual)return;const v=o.signVisual;if(hovered&&!v.hover)v.time=0;v.hover=hovered;v.time+=dt;v.uniforms.glimmer.value=hovered&&!reduced?(v.time%1.5)/.65*1.5-.2:-1;}

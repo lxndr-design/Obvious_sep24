@@ -6,11 +6,11 @@ const hasMessage=o=>!o.properties?.locked&&o.properties?.messages?.some(m=>m.tex
 export function messageHopMembers(root,objects){
  const members=[root],seen=new Set(members);
  for(let i=0;i<members.length;i++){
-  const o=members[i],joins=o.bathJoins??o.hedgeJoins??0,tile=o.type==='birdbath'?1.5:1;
+  const o=members[i],joins=o.bathJoins??o.hedgeJoins??0,tile=(o.type==='birdbath'?1.5:1)*(o.modelScale??1);
   for(const other of objects){
    if(seen.has(other))continue;
    let joined=false;
-   if(joins&&other.type===o.type&&!other.hanging&&Math.abs(other.mesh.position.y-o.mesh.position.y)<.001){
+   if(joins&&other.type===o.type&&(other.modelScale??1)===(o.modelScale??1)&&!other.hanging&&Math.abs(other.mesh.position.y-o.mesh.position.y)<.001){
     const dx=other.mesh.position.x-o.mesh.position.x,dz=other.mesh.position.z-o.mesh.position.z;
     joined=Math.abs(dz)<.001&&(dx<0?joins&1:joins&2)&&Math.abs(Math.abs(dx)-tile)<.001||Math.abs(dx)<.001&&(dz<0?joins&4:joins&8)&&Math.abs(Math.abs(dz)-tile)<.001;
    }

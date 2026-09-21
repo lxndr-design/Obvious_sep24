@@ -8,7 +8,7 @@ import {CollisionScene} from '../src/collision.js';
 await R.init();
 test('1, 2 and 3 tile forms resize both the visible geometry and their collision shapes',()=>{
  const c=new CollisionScene(R);
- for(const type of SIZED_FORMS)for(const n of [1,2,3]){const f=makeSizedForm(type,R,n),o={...f,type,mesh:new THREE.Mesh(f.geometry)};o.mesh.position.set(-10,n*2,-10);const size=f.geometry.boundingBox.getSize(new THREE.Vector3());assert.ok(Math.abs(Math.max(size.x,size.z)-n)<1e-5);assert.ok(c.canPlace(o,o.mesh.position));const bounds=c.partsAt(o).bounds;assert.ok(Math.abs(Math.max(bounds.max.x-bounds.min.x,bounds.max.z-bounds.min.z)-n)<.01,type);}
+ for(const type of SIZED_FORMS)for(const n of [1,2,3]){const f=makeSizedForm(type,R,n),o={...f,type,mesh:new THREE.Mesh(f.geometry)};o.mesh.position.set(-10,n*2,-10);const size=f.geometry.boundingBox.getSize(new THREE.Vector3());assert.ok(Math.abs(Math.max(size.x,size.y,size.z)-(type==='hedge'?.72*n:n))<1e-5);assert.ok(c.canPlace(o,o.mesh.position));const bounds=c.partsAt(o).bounds;assert.ok(Math.abs(Math.max(bounds.max.x-bounds.min.x,bounds.max.y-bounds.min.y,bounds.max.z-bounds.min.z)-(type==='hedge'?.72*n:n))<.01,type);}
 });
 test('space records preserve sizes, messages, cable anchors and independent support links',()=>{
  const f=makeSizedForm('box',R,2),o={...f,id:4,type:'box',mesh:new THREE.Mesh(f.geometry),properties:{locked:false,tone:.3,messages:[{text:'hello',choices:[]}]},hanging:true,cableLength:3,anchor:new THREE.Vector3(0,8.5,0)};

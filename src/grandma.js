@@ -98,10 +98,13 @@ export function grandmaPlacement(collision,o,x,z,groundOnly=false){
  if(!groundOnly)for(const bench of collision.objects){
   if(bench.type!=='bench'||bench.hanging||new THREE.Vector3(0,1,0).applyQuaternion(bench.mesh.quaternion).y<.999)continue;
   const local=new THREE.Vector3(x-bench.mesh.position.x,0,z-bench.mesh.position.z).applyQuaternion(bench.mesh.quaternion.clone().invert());
-  if(Math.abs(local.x)>.72||Math.abs(local.z)>.55)continue;
-  const position=new THREE.Vector3(Math.round(local.x*2)/2,0,0).applyQuaternion(bench.mesh.quaternion).add(bench.mesh.position);
-  position.y=bench.mesh.position.y+bench.stacking.headY-sitting.seatY;
-  const placed=probe(sitting,position,bench.mesh.quaternion.clone(),bench);if(placed)return placed;
+  if(Math.abs(local.x)>.72*(bench.modelScale??1)||Math.abs(local.z)>.55*(bench.modelScale??1))continue;
+  // A proportionally taller character may need to sit nearer the front edge.
+  for(const forward of [0,.06,.12,.18,.24]){
+   const position=new THREE.Vector3(Math.round(local.x*2)/2,0,forward*(o.modelScale??1)).applyQuaternion(bench.mesh.quaternion).add(bench.mesh.position);
+   position.y=bench.mesh.position.y+bench.stacking.headY-sitting.seatY;
+   const placed=probe(sitting,position,bench.mesh.quaternion.clone(),bench);if(placed)return placed;
+  }
  }
  const rotation=o.mesh.quaternion.clone(),candidate={...o,...standing};
  const position=new THREE.Vector3(x,collision.supportY(candidate,x,z,rotation),z);

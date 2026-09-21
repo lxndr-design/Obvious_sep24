@@ -1,4 +1,5 @@
-import {makeSizedForm,SIZED_FORMS,installSizeMenu} from './object-size.js';
+import {DragGrid} from './drag-grid.js';
+import {makeSizedForm,installSizeMenu,objectSizeLabel} from './object-size.js';
 import {objectRecord,validateSpace,installSpaces} from './spaces.js';
 import {setGrandmaPose} from './grandma.js';
 import {bindDragPointer} from './drag-pointer.js';
@@ -77,7 +78,7 @@ const poleEye=new PoleEye($('stage'),pole=>{cancelDrag();cancelToolbarDrag();mes
 let hoveredSign=null;
 const hopPuffs=new HopPuffs(scene),messageHops=new MessageHops(),reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
-const cursorGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.24,.012,-.24),new THREE.Vector3(.24,.012,-.24),new THREE.Vector3(.24,.012,.24),new THREE.Vector3(-.24,.012,.24),new THREE.Vector3(-.24,.012,-.24)]);const gridCursor=new THREE.Line(cursorGeometry,new THREE.LineBasicMaterial({color:0x57794a,transparent:true,opacity:.7}));gridCursor.visible=false;scene.add(gridCursor);
+const gridCursor=new DragGrid();scene.add(gridCursor);
 const cableMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9,transparent:true,depthWrite:false});
 cableMaterial.onBeforeCompile=shader=>{
  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying float cableHeight;').replace('#include <begin_vertex>','#include <begin_vertex>\ncableHeight=(modelMatrix*vec4(transformed,1.)).y;');
@@ -122,11 +123,11 @@ function addHole(position=null,size=2){
  }
  if(!position||!canPlaceHole(size,...position)){notify('No clear ground for this pool.');return null;}
  const geometry=new THREE.BoxGeometry(size,.012,size),mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));geometry.computeBoundingBox();mesh.position.set(position[0],.006,position[1]);
- const o={id:++state.sequence,type:'pool',size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};o.properties=properties();o.primaryMaterial=white.clone();mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();return o;
+ const o={id:++state.sequence,type:'pool',gridSize:size,size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};o.properties=properties();o.primaryMaterial=white.clone();mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();return o;
 }
 function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o)))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(o.properties?.locked)return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
-function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=SIZED_FORMS.has(type)?1:null,record=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize);const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];mesh.userData.object=o;
+function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize);const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];mesh.userData.object=o;
  if(record?.seated)setGrandmaPose(o,true,physics);
  if(isSign(o)&&placement)applySignPlacement(o,placement);
  if(o.grandmaForms&&placement)applyGrandmaPlacement(o,placement,physics);
@@ -138,9 +139,9 @@ function addObject(type,position=null,hanging=false,cableLength=5,placement=null
 let noticeTimer;
 function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
 function select(o){if(presentationOnly)o=null;const changed=state.selected!==o;state.selected=o;
- const list=$('object-list');list.replaceChildren(new Option('Select object',''),...[...state.objects,...state.holes].map(item=>new Option(`${item.type==='pool'?'Pool':LABELS[item.type]} ${item.id}${item.properties.locked?' · locked':''}`,item.id)));list.value=o?.id??'';
+ const list=$('object-list');list.replaceChildren(new Option('Select object',''),...[...state.objects,...state.holes].map(item=>new Option(`${objectSizeLabel(item)} ${item.id}${item.properties.locked?' · locked':''}`,item.id)));list.value=o?.id??'';
  if(changed||!o)inspector.select(o);signInspector.select(o);
- for(const id of ['rotate','remove','suspended','cable'])$(id).disabled=!!o&&!canManipulate(o,stacks.members(o));for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging&&!form.properties.locked;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=o.type==='pool'?'Pool':LABELS[o.type];$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool'||isSign(o)||o.type==='sign-pole';$('rotate').hidden=o.type==='pool'||isSign(o)||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
+ for(const id of ['rotate','remove','suspended','cable'])$(id).disabled=!!o&&!canManipulate(o,stacks.members(o));for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging&&!form.properties.locked;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=objectSizeLabel(o);$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool'||isSign(o)||o.type==='sign-pole';$('rotate').hidden=o.type==='pool'||isSign(o)||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
 function setHang(o,hanging,length=o.cableLength){
  if(o.type==='pool'||isSign(o)||o.type==='sign-pole'||!canManipulate(o,stacks.members(o)))return false;
  if(joining(o))joining(o)?.refresh(o);
@@ -221,7 +222,7 @@ canvas.addEventListener('pointerdown',event=>{
   state.drag={object:o,mode,offset:(mode==='anchor'?o.anchor:o.mesh.position).clone().sub(point),snapshot:mode==='floor'?stacks.snapshot(o):mode==='pool'?{position:o.mesh.position.clone()}:pendulums.snapshot(o),id:event.pointerId};
   if(mode==='floor'||mode==='anchor')dragGhost.begin(mode==='floor'?stacks.members(o):[o]);
   if(mode==='anchor')pendulums.beginAnchor(o);if(mode==='pull'){presentation.clear(o);pendulums.beginPull(o);}
-  canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
+  canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.setObject(o);gridCursor.position.set(o.mesh.position.x,0,o.mesh.position.z);gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
   notify(mode==='pull'?'Pull freely · release to swing · Esc to cancel':mode==='anchor'?'Reposition the ceiling anchor · grid locked':'Grid locked · release to place · Esc to cancel');
  }else if(picked?.water){select(null);if(picked.view.object)picked.view.splash(picked.hit);else splash(picked.hit);state.drag={water:true,bath:picked.view.object?picked.view:null,id:event.pointerId,last:performance.now(),previous:waterUV(picked.view,picked.hit),view:picked.view};canvas.style.cursor='crosshair';canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
  else{select(null);notify('');}
@@ -275,19 +276,19 @@ canvas.addEventListener('keydown',e=>{
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
 });
 function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o))||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');}updateCable(o);select(o);}
-for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add,null,false,5,null,0,SIZED_FORMS.has(button.dataset.add)?1:null);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${LABELS[o.type]} added · drag it into place`);canvas.focus({preventScroll:true});}});
+for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add,null,false,5,null,0,+button.dataset.gridSize||2);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
 const pickerTypes={plant:'plant-snake-medium',table:'table-round-full',grandma:'grandma-skirt-bun',sign:'sign-arrow-text'};
 function openPicker(family){
- pickerFamily=family;const plant=family==='plant',grandma=family==='grandma',sign=family==='sign';
+ closeSizeMenu();pickerFamily=family;const plant=family==='plant',grandma=family==='grandma',sign=family==='sign';
  $('picker-title').textContent=sign?'Sign':grandma?'Grandma':plant?'Potted plant':'Table';$('variant-label').textContent=sign?'Shape':grandma?'Outfit':plant?'Plant':'Shape';
  $('size-label').textContent=sign?'Contents':grandma?'Hair & hat':'Size';
  const variants=sign?Object.entries(SIGN_VARIANTS):grandma?Object.entries(GRANDMA_OUTFITS):plant?Object.entries(PLANTS):[['round','Round'],['square','Square']];
- const sizes=sign?[['text','Icon, text & arrow'],['icon','Icon & arrow']]:grandma?Object.entries(GRANDMA_HAIR):plant?[['small','Small'],['medium','Medium'],['large','Large']]:[['half','½ size'],['full','1/1 size']];
+ const sizes=sign?[['text','Icon, text & arrow'],['icon','Icon & arrow']]:grandma?Object.entries(GRANDMA_HAIR):[['1','Small'],['2','Medium'],['3','Large']];
  $('object-variant').replaceChildren(...variants.map(([value,label])=>new Option(label,value)));
  $('object-size').replaceChildren(...sizes.map(([value,label])=>new Option(label,value)));
- const remembered=pickerTypes[family].split('-');$('object-variant').value=remembered[1];$('object-size').value=remembered[2];
- $('picker-hint').textContent=sign?'Drag onto a sign pole. Each sign can point in its own direction.':grandma?'Occasionally scatters birdseed. Drag onto a park bench to sit.':plant?'Three plants, each in three sizes. Drag, rotate or hang them just like other forms.':'Full size: 2 m wide × 1.3 m tall. Half size scales every dimension by ½.';
+ const remembered=pickerTypes[family].split('-');$('object-variant').value=remembered[1];$('object-size').value=sign||grandma?remembered[2]:(document.getElementById('add-'+family).dataset.gridSize||'2');$('picker-scale-wrap').hidden=!sign&&!grandma;$('picker-scale').value=document.getElementById('add-'+family).dataset.gridSize||'2';
+ $('picker-hint').textContent=sign?'Drag onto a sign pole. Each sign can point in its own direction.':grandma?'Occasionally scatters birdseed. Drag onto a park bench to sit.':plant?'Choose a plant and size.':'Choose a shape and size.';
  $('object-picker').showModal();
 }
 $('add-sign').addEventListener('click',()=>openPicker('sign'));
@@ -296,15 +297,15 @@ $('add-grandma').addEventListener('click',()=>openPicker('grandma'));
 $('add-table').addEventListener('click',()=>openPicker('table'));
 $('picker-close').addEventListener('click',()=>$('object-picker').close());
 $('picker-form').addEventListener('submit',event=>{
- event.preventDefault();const type=`${pickerFamily}-${$('object-variant').value}-${$('object-size').value}`;
- pickerTypes[pickerFamily]=type;const o=addObject(type);if(o){$('object-picker').close();select(o);notify(`${LABELS[type]} added · drag it into place`);canvas.focus({preventScroll:true});}
+ event.preventDefault();const familyOptions=pickerFamily==='grandma'||pickerFamily==='sign',size=+(familyOptions?$('picker-scale').value:$('object-size').value),suffix=familyOptions?$('object-size').value:pickerFamily==='plant'?'medium':'full',type=`${pickerFamily}-${$('object-variant').value}-${suffix}`;document.getElementById('add-'+pickerFamily).dataset.gridSize=size;
+ pickerTypes[pickerFamily]=type;const o=addObject(type,null,false,5,null,0,size);if(o){$('object-picker').close();select(o);notify(`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}
  else $('picker-hint').textContent='No clear space here. Close this picker, pan to an open area, or remove a form and try again.';
 });
 // Toolbar drags use a disposable preview; commit only on a valid scene drop.
 var toolbarDrag=null;
 let suppressToolbarClick=null;
 const toolbar=document.querySelector('.toolbar');
-installSizeMenu(toolbar,(type,size)=>{const o=addObject(type,null,false,5,null,0,size);if(o){select(o);canvas.focus({preventScroll:true});}});
+const closeSizeMenu=installSizeMenu(toolbar,(type,size)=>{const o=addObject(type,null,false,5,null,0,size);if(o){select(o);canvas.focus({preventScroll:true});}},{typeFor:toolbarType,onVariants:button=>openPicker(button.id.replace('add-',''))});
 function toolbarType(button){return button.dataset.add??pickerTypes[button.id.replace('add-','')];}
 function updateToolbarDrag(event){
  const drag=toolbarDrag;if(!drag?.preview)return;
@@ -323,7 +324,7 @@ function updateToolbarDrag(event){
  gridCursor.visible=drag.preview.mesh.visible;if(!gridCursor.visible)return;
  const x=Math.round(hit.x/GRID)*GRID,z=Math.round(hit.z/GRID)*GRID,o=drag.preview;
  if(o.type==='pool'){
-  if(canPlaceHole(2,x,z))drag.placement={position:new THREE.Vector3(x,.006,z),support:null};
+  if(canPlaceHole(drag.gridSize,x,z))drag.placement={position:new THREE.Vector3(x,.006,z),support:null};
  }else drag.placement=placementAt(stacks,o,x,z);
  o.mesh.position.copy(drag.placement?.position??new THREE.Vector3(x,o.type==='pool'?.006:physics.supportY(o,x,z),z));
  gridCursor.position.set(x,.02,z);gridCursor.material.color.set(drag.placement?0x57794a:0x995548);
@@ -347,7 +348,7 @@ function cancelToolbarDrag(){finishToolbarDrag(null,true);}
 toolbar.addEventListener('pointerdown',event=>{
  const button=event.target.closest('button[data-add],#add-plant,#add-table,#add-grandma,#add-sign');
  if(!button||event.button!==0||toolbarDrag||state.drag||signFocus.active)return;
- toolbarDrag={id:event.pointerId,button,type:toolbarType(button),x:event.clientX,y:event.clientY,started:false,preview:null,placement:null};
+ toolbarDrag={id:event.pointerId,button,type:toolbarType(button),gridSize:+button.dataset.gridSize||2,x:event.clientX,y:event.clientY,started:false,preview:null,placement:null};
  button.setPointerCapture(event.pointerId);
 });
 toolbar.addEventListener('dragstart',event=>event.preventDefault());
@@ -361,10 +362,10 @@ window.addEventListener('pointermove',event=>{
   if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<6)return;
   drag.started=true;controls.enabled=false;drag.button.classList.add('dragging');
   if(state.objects.length+state.holes.length>=40){finishToolbarDrag(event,true);notify('The scene is full — remove a form to add another.');return;}
-  const form=drag.type==='pool'?{geometry:new THREE.BoxGeometry(2,.012,2),height:.012}:makeSizedForm(drag.type,RAPIER,SIZED_FORMS.has(drag.type)?1:null);
+  const form=drag.type==='pool'?{geometry:new THREE.BoxGeometry(drag.gridSize,.012,drag.gridSize),height:.012,size:drag.gridSize,gridSize:drag.gridSize}:makeSizedForm(drag.type,RAPIER,drag.gridSize);
   const material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.88,transparent:true,opacity:.55,depthWrite:false});
   if(drag.type==='hedge')applyHedgeSurface(material);
-  const mesh=new THREE.Mesh(form.geometry,material);mesh.raycast=()=>{};drag.preview={...form,type:drag.type,mesh};scene.add(mesh);
+  const mesh=new THREE.Mesh(form.geometry,material);mesh.raycast=()=>{};drag.preview={...form,type:drag.type,mesh};scene.add(mesh);gridCursor.setObject(drag.preview);
  }
  event.preventDefault();event.stopPropagation();updateToolbarDrag(event);
 },{capture:true,passive:false});

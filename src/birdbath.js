@@ -9,23 +9,23 @@ export function bathWaterContexts(objects,views=new Map()){
  while(remaining.size){
   const first=remaining.values().next().value,members=[first];remaining.delete(first);
   for(let i=0;i<members.length;i++){const a=members[i];if(a.type!=='birdbath'||!a.bathJoins||a.hanging)continue;
-   for(const b of remaining){if(b.type!=='birdbath'||b.hanging||Math.abs(a.mesh.position.y-b.mesh.position.y)>.001)continue;
+   for(const b of remaining){if(b.type!=='birdbath'||b.hanging||Math.abs((a.modelScale??1)-(b.modelScale??1))>.001||Math.abs(a.mesh.position.y-b.mesh.position.y)>.001)continue;
     const dx=b.mesh.position.x-a.mesh.position.x,dz=b.mesh.position.z-a.mesh.position.z;
-    if(Math.abs(Math.abs(dx)+Math.abs(dz)-BATH.tile)<.001&&(Math.abs(dx)<.001||Math.abs(dz)<.001)){members.push(b);remaining.delete(b);}
+    if(Math.abs(Math.abs(dx)+Math.abs(dz)-BATH.tile*(a.modelScale??1))<.001&&(Math.abs(dx)<.001||Math.abs(dz)<.001)){members.push(b);remaining.delete(b);}
    }
   }
-  const key=members.map(o=>[o.id,o.mesh.position.x,o.mesh.position.y,o.mesh.position.z,o.bathJoins??0,o.hanging,...o.mesh.quaternion.toArray()].join(',')).sort().join(';');
+  const key=members.map(o=>[o.id,o.mesh.position.x,o.mesh.position.y,o.mesh.position.z,o.bathJoins??0,o.modelScale??1,o.hanging,...o.mesh.quaternion.toArray()].join(',')).sort().join(';');
   let context=old.get(key);
   if(!context){
    let x0=Infinity,x1=-Infinity,z0=Infinity,z1=-Infinity;
-   for(const o of members){const r=o.bathJoins?.75:bathDimensions(o).waterRadius;x0=Math.min(x0,o.mesh.position.x-r);x1=Math.max(x1,o.mesh.position.x+r);z0=Math.min(z0,o.mesh.position.z-r);z1=Math.max(z1,o.mesh.position.z+r);}
+   for(const o of members){const r=o.bathJoins?.75*(o.modelScale??1):bathDimensions(o).waterRadius;x0=Math.min(x0,o.mesh.position.x-r);x1=Math.max(x1,o.mesh.position.x+r);z0=Math.min(z0,o.mesh.position.z-r);z1=Math.max(z1,o.mesh.position.z+r);}
    const width=Math.max(x1-x0,z1-z0),x=(x0+x1)/2,z=(z0+z1)/2,size=members.length===1?33:Math.min(257,Math.max(33,Math.ceil(width/.045)+1));
    const field=new WaveField(size,width);field.energy=0;field.speed=1.1;field.damping=2.8;field.mask=new Uint8Array(size*size);
-   for(const o of members){const r=o.bathJoins?.75:bathDimensions(o).waterRadius,px=o.mesh.position.x,pz=o.mesh.position.z;
+   for(const o of members){const r=o.bathJoins?.75*(o.modelScale??1):bathDimensions(o).waterRadius,px=o.mesh.position.x,pz=o.mesh.position.z;
     const ix0=Math.max(0,Math.floor((px-r-x+width/2)/field.dx)),ix1=Math.min(size-1,Math.ceil((px+r-x+width/2)/field.dx));
     const iz0=Math.max(0,Math.floor((pz-r-z+width/2)/field.dx)),iz1=Math.min(size-1,Math.ceil((pz+r-z+width/2)/field.dx));
     for(let j=iz0;j<=iz1;j++)for(let i=ix0;i<=ix1;i++){const lx=x-width/2+i*field.dx-px,lz=z-width/2+j*field.dx-pz;
-     if(o.bathJoins?bathContains(lx,lz,o.bathJoins):Math.hypot(lx,lz)<=r+1e-6)field.mask[j*size+i]=1;
+     if(o.bathJoins?bathContains(lx/(o.modelScale??1),lz/(o.modelScale??1),o.bathJoins):Math.hypot(lx,lz)<=r+1e-6)field.mask[j*size+i]=1;
     }
    }
    context={key,field,x,z,members};
@@ -49,10 +49,10 @@ export class BathWater {
  constructor(object,context=bathWaterContexts([object]).get(object)){
   this.object=object;this.context=context;const dimensions=bathDimensions(object);this.group=new THREE.Group();object.mesh.add(this.group);
   this.group.position.y=dimensions.waterY-object.height/2;
-  this.field=context.field;const width=object.bathJoins?BATH.tile:dimensions.waterRadius*2;
+  this.field=context.field;const width=object.bathJoins?BATH.tile*(object.modelScale??1):dimensions.waterRadius*2;
   this.geometry=new THREE.PlaneGeometry(width,width,32,32);this.geometry.rotateX(-Math.PI/2);
   const a=this.geometry.attributes.position,mask=new Uint8Array(a.count);
-  for(let i=0;i<a.count;i++)mask[i]=object.bathJoins?bathContains(a.getX(i),a.getZ(i),object.bathJoins):Math.hypot(a.getX(i),a.getZ(i))<=dimensions.waterRadius;
+  for(let i=0;i<a.count;i++)mask[i]=object.bathJoins?bathContains(a.getX(i)/(object.modelScale??1),a.getZ(i)/(object.modelScale??1),object.bathJoins):Math.hypot(a.getX(i),a.getZ(i))<=dimensions.waterRadius;
 
   const indices=this.geometry.index.array,clipped=[];
   for(let i=0;i<indices.length;i+=3)if(mask[indices[i]]&&mask[indices[i+1]]&&mask[indices[i+2]])clipped.push(indices[i],indices[i+1],indices[i+2]);
@@ -77,7 +77,7 @@ export class BathWater {
    this.fountainTime+=dt;
    while(this.fountainTime>=1/35){
     this.fountainTime-=1/35;const angle=this.splashCount++*2.39996;
-    this.drops[this.cursor]={position:new THREE.Vector3(0,.20,0),velocity:new THREE.Vector3(Math.cos(angle)*.30,2.35,Math.sin(angle)*.30),age:0};this.cursor=(this.cursor+1)%48;
+    this.drops[this.cursor]={position:new THREE.Vector3(0,.20*(this.object.modelScale??1),0),velocity:new THREE.Vector3(Math.cos(angle)*.30,2.35,Math.sin(angle)*.30).multiplyScalar(Math.sqrt(this.object.modelScale??1)),age:0};this.cursor=(this.cursor+1)%48;
     this.field.disturb(.5+Math.cos(angle)*.12,.5+Math.sin(angle)*.12,-.05,.055);
    }
   }

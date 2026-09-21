@@ -1,3 +1,4 @@
+import {scaleForm} from './form-scale.js';
 import * as THREE from 'three';
 import {hedgeUVs} from './hedge-surface.js';
 import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
@@ -35,12 +36,13 @@ export class HedgeScene {
    let joins=0;
    if(active(o))for(const other of hedges){
     if(other===o||!active(other)||Math.abs(o.mesh.position.y-other.mesh.position.y)>.001)continue;
+    const scale=o.modelScale??1;if(Math.abs(scale-(other.modelScale??1))>.001)continue;const tile=this.tile*scale;
     const x=other.mesh.position.x-o.mesh.position.x,z=other.mesh.position.z-o.mesh.position.z;
-    if(Math.abs(z)<.001){if(Math.abs(x+this.tile)<.001)joins|=1;if(Math.abs(x-this.tile)<.001)joins|=2;}
-    if(Math.abs(x)<.001){if(Math.abs(z+this.tile)<.001)joins|=4;if(Math.abs(z-this.tile)<.001)joins|=8;}
+    if(Math.abs(z)<.001){if(Math.abs(x+tile)<.001)joins|=1;if(Math.abs(x-tile)<.001)joins|=2;}
+    if(Math.abs(x)<.001){if(Math.abs(z+tile)<.001)joins|=4;if(Math.abs(z-tile)<.001)joins|=8;}
    }
    if(joins===o[this.key])continue;
-   const form=this.make(this.R,joins),old={geometry:o.geometry,parts:o.parts,stacking:o.stacking,[this.key]:o[this.key]};
+   const form=scaleForm(this.make(this.R,joins),this.R,o.modelScale??1),old={geometry:o.geometry,parts:o.parts,stacking:o.stacking,[this.key]:o[this.key]};
    Object.assign(o,form);o.mesh.geometry=form.geometry;if(o.debug)o.debug.geometry=form.geometry;
    this.collision.prepared.delete(o);changes.push({o,old,form});
   }

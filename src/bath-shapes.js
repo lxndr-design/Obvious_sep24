@@ -4,7 +4,7 @@ import {mergeGeometries,mergeVertices} from 'three/addons/utils/BufferGeometryUt
 import {stackingProfile} from './stacking.js';
 export const BATH={height:1.20,waterY:1.10,waterRadius:.60,rimRadius:.68,tile:1.5};
 export const FOUNTAIN={height:1.53,waterY:1.43,waterRadius:.57,rimRadius:.69};
-export const bathDimensions=o=>o.type==='fountain'?FOUNTAIN:BATH;
+export const bathDimensions=o=>{const d=o.type==='fountain'?FOUNTAIN:BATH,s=o.modelScale??1;return s===1?d:Object.fromEntries(Object.entries(d).map(([key,value])=>[key,value*s]));};
 
 const outlines=new Map(),templates=new WeakMap();
 // Circular exposed corners become straight, open edges where another tile joins.

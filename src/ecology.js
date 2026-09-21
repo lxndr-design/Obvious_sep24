@@ -128,7 +128,7 @@ export class Ecology {
   for(const [o,view]of this.bathViews){
    if(!view.group.visible||o.hanging)continue;
    const dimensions=bathDimensions(o),x=position.x-o.mesh.position.x,z=position.z-o.mesh.position.z;
-   if(!(o.bathJoins?bathContains(x,z,o.bathJoins):Math.hypot(x,z)<dimensions.waterRadius))continue;
+   if(!(o.bathJoins?bathContains(x/(o.modelScale??1),z/(o.modelScale??1),o.bathJoins):Math.hypot(x,z)<dimensions.waterRadius))continue;
    const uv=view.uv(position),n=view.field.size,index=Math.max(0,Math.min(n-1,Math.round(uv.v*(n-1))))*n+Math.max(0,Math.min(n-1,Math.round(uv.u*(n-1))));
    const y=o.mesh.position.y-o.height/2+dimensions.waterY+view.field.height[index];
    if(Math.abs(position.y-y)<.4)return {field:view.field,y,uv:p=>view.uv(p)};
