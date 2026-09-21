@@ -1,9 +1,11 @@
+import {isSign,signPlacement} from './signs.js';
 import {grandmaPlacement,applyGrandmaPlacement} from './grandma.js';
 import * as THREE from 'three';
 
 // Drag placement is transactional: clipped travel must not leave a form wedged
 // against an obstacle. A clear destination can be reached across a blocked path.
 export function dragFloor(stacks,root,target){
+ if(isSign(root))return {moved:stacks.move(root,target),relocated:false};
  if(root.grandmaForms)return {moved:stacks.placeGrandma(root,target),relocated:true};
  const snapshot=stacks.snapshot(root),members=snapshot.map(s=>s.object);
  if(stacks.move(root,target)&&Math.hypot(root.mesh.position.x-target.x,root.mesh.position.z-target.z)<.001)return {moved:true,relocated:false};
@@ -64,6 +66,7 @@ export class DragGhost {
 
 // Probe destinations without adding a body or mutating the existing scene.
 export function placementAt(stacks,object,x,z){
+ if(isSign(object))return signPlacement(stacks.collision,object,x,z);
  if(object.grandmaForms){const placement=grandmaPlacement(stacks.collision,object,x,z);if(placement)applyGrandmaPlacement(object,placement,stacks.collision);return placement;}
  for(const choice of stacks.supports(object,x,z)){
   const position=new THREE.Vector3(x,choice.y,z);

@@ -1,3 +1,4 @@
+import {isSign,signPlacement,applySignPlacement,turnSign} from './signs.js';
 import {grandmaPlacement,applyGrandmaPlacement,setGrandmaPose} from './grandma.js';
 import * as THREE from 'three';
 
@@ -56,13 +57,14 @@ export class StackScene {
   }
   return [...choices.sort((a,b)=>b.y-a.y),ground];
  }
- snapshot(root){return this.members(root).map(o=>({object:o,position:o.mesh.position.clone(),rotation:o.mesh.quaternion.clone(),support:o.support??null,seated:o.seated}));}
- restore(snapshot){for(const s of snapshot){setGrandmaPose(s.object,s.seated,this.collision);s.object.mesh.position.copy(s.position);s.object.mesh.quaternion.copy(s.rotation);s.object.support=s.support;}}
+ snapshot(root){return this.members(root).map(o=>({object:o,position:o.mesh.position.clone(),rotation:o.mesh.quaternion.clone(),support:o.support??null,seated:o.seated,signSlot:o.signSlot}));}
+ restore(snapshot){for(const s of snapshot){setGrandmaPose(s.object,s.seated,this.collision);s.object.mesh.position.copy(s.position);s.object.mesh.quaternion.copy(s.rotation);s.object.support=s.support;s.object.signSlot=s.signSlot;}}
  valid(members,delta){const ignore=new Set(members);return members.every(o=>this.collision.canPlace(o,o.mesh.position.clone().add(delta),o.mesh.quaternion,ignore));}
  sweep(members,from,to){const ignore=new Set(members);let fraction=1;for(const o of members)fraction=Math.min(fraction,this.collision.castFraction(o,o.mesh.position.clone().add(from),o.mesh.position.clone().add(to),ignore));return fraction;}
  clear(members,from,to){return (1-this.sweep(members,from,to))*from.distanceTo(to)<.001;}
  translate(members,delta){for(const o of members)o.mesh.position.add(delta);}
  move(root,target){
+  if(isSign(root)){const p=signPlacement(this.collision,root,target.x,target.z);if(p)applySignPlacement(root,p);return !!p;}
   if(root.grandmaForms)return this.placeGrandma(root,target);
   if(!target.toArray().every(Number.isFinite))return false;
   const members=this.members(root),from=root.mesh.position.clone();if(from.x===target.x&&from.z===target.z)return true;
@@ -87,6 +89,7 @@ export class StackScene {
   }return false;
  }
  rotate(root){
+  if(isSign(root))return turnSign(this.collision,root,Math.PI/4);
   if(root.grandmaForms&&root.seated)return false;
   const snapshot=this.snapshot(root),members=snapshot.map(s=>s.object),ignore=new Set(members),pivot=root.mesh.position.clone();
   for(let i=1;i<=18;i++){

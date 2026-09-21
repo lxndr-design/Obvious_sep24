@@ -1,3 +1,4 @@
+import {makeSign,SIGN_LABELS} from './signs.js';
 import {makeGrandma,GRANDMA_LABELS} from './grandma.js';
 import * as THREE from 'three';
 import {makeStick} from './sticks.js';
@@ -5,8 +6,9 @@ import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
 import {makeHedge} from './hedges.js';
 import {stackingProfile} from './stacking.js';
 import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
-export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...FURNISHING_LABELS};
+export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...FURNISHING_LABELS,...SIGN_LABELS};
 export function makeForm(type,R){
+ if(Object.hasOwn(SIGN_LABELS,type)){const form=makeSign(type,R);return {...form,stacking:stackingProfile(type,form)};}
  if(type==='grandma'||type.startsWith('grandma-'))return makeGrandma(R,type);
  if(type==='stick'){const form=makeStick(R);return {...form,stacking:stackingProfile(type,form)};}
  if(type==='hedge')return makeHedge(R);

@@ -29,7 +29,7 @@ export class MessageHops {
  reset(){this.time=0;this.schedule.clear();this.active=null;this.offsets.clear();this.events=[];}
  step(dt,objects,{disabled=false,busy=()=>false,clear=()=>true}={}){
   this.time+=Math.max(0,dt);this.offsets.clear();this.events=[];
-  const eligible=objects.filter(o=>o.type!=='pool'&&!o.messageSeen&&hasMessage(o));
+  const eligible=objects.filter(o=>o.type!=='pool'&&o.support?.type!=='sign-pole'&&!o.messageSeen&&hasMessage(o));
   for(const o of this.schedule.keys())if(!eligible.includes(o))this.schedule.delete(o);
   for(const o of eligible)if(!this.schedule.has(o))this.schedule.set(o,this.time+1.2+this.random()*2);
   const unavailable=members=>disabled||members.some(o=>!objects.includes(o)||o.properties?.locked||busy(o));
