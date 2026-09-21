@@ -1,3 +1,4 @@
+import {bindDragPointer} from './drag-pointer.js';
 import {installTrackpadPan} from './camera-pan.js';
 import {DEFAULT_PARK} from './default-scene.js';
 import {isSign,applySignPlacement,decorateSign,disposeSign,stepSign,SIGN_VARIANTS} from './signs.js';
@@ -170,7 +171,7 @@ function trackPointer(event){const groundPoint=raycaster.ray.intersectPlane(grou
 canvas.addEventListener('pointerleave',()=>{ecology.setPointer(null,null);messages.leave();hoveredSign=null;poleEye.target(null);});
 const activePointers=new Set();
 canvas.addEventListener('pointerdown',e=>{activePointers.add(e.pointerId);if(activePointers.size>1)cancelDrag();},true);
-for(const event of ['pointerup','pointercancel'])canvas.addEventListener(event,e=>activePointers.delete(e.pointerId),true);
+for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>activePointers.delete(e.pointerId),true);
 function pick(){const restore=presentation.apply();try{return pickScene();}finally{restore();}}
 function pickScene(){
  const handles=raycaster.intersectObjects(state.selected?.hanging&&!state.selected.properties.locked?[state.selected.cable.hit]:[],false);
@@ -216,7 +217,7 @@ canvas.addEventListener('pointerdown',event=>{
  }else if(picked?.water){select(null);if(picked.view.object)picked.view.splash(picked.hit);else splash(picked.hit);state.drag={water:true,bath:picked.view.object?picked.view:null,id:event.pointerId,last:performance.now(),previous:waterUV(picked.view,picked.hit),view:picked.view};canvas.style.cursor='crosshair';canvas.setPointerCapture(event.pointerId);controls.enabled=false;}
  else{select(null);notify('');}
 });
-canvas.addEventListener('pointermove',event=>{
+function moveScenePointer(event){
  ray(event);trackPointer(event);if(!state.drag){const hit=pick();const hoverObject=hit?.object??hit?.view?.object??hit?.hoverObject;hoveredSign=isSign(hoverObject)&&!hoverObject.properties.locked?hoverObject:null;poleEye.target(hoverObject);messages.target(state.mouseMode==='drag'?(hit?.object??hit?.view?.object??hit?.hoverObject):null);canvas.style.cursor=state.mouseMode==='seed'?'crosshair':hit?.locked?'default':hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
  if(state.drag.id!==event.pointerId)return;
  if(state.drag.mode==='feed'){const p=seedDropPoint(),now=performance.now();if(p&&now-state.drag.last>180&&(!state.drag.lastPoint||p.distanceTo(state.drag.lastPoint)>.035)){ecology.scatterFood(seedDropPoint(.25));state.drag.last=now;state.drag.lastPoint=p.clone();}return;}
@@ -241,7 +242,8 @@ canvas.addEventListener('pointermove',event=>{
 
  if(moved){const placed=mode==='anchor'?o.anchor:o.mesh.position;gridCursor.position.set(placed.x,0,placed.z);}
  gridCursor.material.color.set(moved?0x57794a:0x995548);notify(moved?'Grid locked · release to place · Esc to cancel':'Move the ghost to a clear spot');updateCable(o);select(o);
-});
+}
+canvas.addEventListener('pointermove',event=>{if(!state.drag)moveScenePointer(event);});
 function endDrag(e,cancel=false){
  if(!state.drag||e&&e.pointerId!==state.drag.id)return;const {id,object,mode}=state.drag;
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
@@ -250,7 +252,7 @@ function endDrag(e,cancel=false){
  dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
 }
 function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
-canvas.addEventListener('pointerup',endDrag);canvas.addEventListener('pointercancel',cancelDrag);canvas.addEventListener('lostpointercapture',cancelDrag);window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
+bindDragPointer(window,canvas,{getDrag:()=>state.drag,move:moveScenePointer,end:endDrag,cancel:cancelDrag});window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
 function placeForm(o,x,z){
  if(!canManipulate(o,stacks.members(o)))return false;
  const target=new THREE.Vector3(Math.round(x/GRID)*GRID,o.hanging?CEILING_HEIGHT:o.mesh.position.y,Math.round(z/GRID)*GRID);
