@@ -21,7 +21,7 @@ test('birds use an elevated bath without leaves, take turns bathing, flap and sp
  peakBathers=Math.max(peakBathers,colony.birds.filter(b=>b.state==='bathing').length);},36);
  for(const state of ['arriving','perching','hopping','bathing'])assert.ok(states.has(state),state);
  assert.ok(arrivalFade&&flaps>20&&splashes>20);assert.equal(peakBathers,1);assert.ok(colony.birds.length>=2&&colony.birds.length<=3);
- colony.disturb(bath.position,[bath]);assert.ok(colony.birds.every(b=>b.state==='departing'));
+ colony.disturb(bath.position,[bath]);assert.ok(colony.birds.every(b=>b.fleeAt>colony.time||b.state==='departing'));advance(dt=>colony.step(dt,[bath],bath.position),2);assert.ok(colony.birds.every(b=>b.state==='departing'));
  advance(dt=>colony.step(dt,[bath],bath.position),10);assert.equal(colony.birds.length,0);
 });
 test('moving, removing or obstructing the bath makes its visitors depart',()=>{

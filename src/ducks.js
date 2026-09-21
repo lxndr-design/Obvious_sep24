@@ -1,3 +1,4 @@
+import {scheduleFlee} from './bird-fear.js';
 import * as THREE from 'three';
 import {seededRandom} from './birds.js';
 import {contains} from './terrain.js';
@@ -14,7 +15,7 @@ export const DUCK_VARIANTS={
 const duckTypes=Object.keys(DUCK_VARIANTS);
 const flockPosition=d=>d.state==='arriving'?d.flightTo:d.position;
 export class DuckFlock {
- constructor(random=seededRandom(2701)){this.random=random;this.variantRandom=seededRandom(421);this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.limit=4;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
+ constructor(random=seededRandom(2701)){this.random=random;this.variantRandom=seededRandom(421);this.temperamentRandom=seededRandom(915);this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.limit=4;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
  nextVariant(){const choices=duckTypes.filter(type=>!this.ducks.some(d=>d.variant===type));const available=choices.length?choices:duckTypes;return available[Math.floor(this.variantRandom()*available.length)];}
  surface(terrain,p){const view=terrain?.at(p.x,p.z);return view?{view,y:view.mesh.position.y+terrain.sample(view,p.x,p.z)}:null;}
  shoreDistance(terrain,view,p){
@@ -51,7 +52,7 @@ export class DuckFlock {
    }
    if(points.length!==count)continue;
    for(const p of points){
-    const d={id:++this.sequence,species:'duck',variant:this.nextVariant(),scale:.92+this.random()*.16,position:p.clone(),velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:false,medium:'air',dabbleAt:this.time+6+this.random()*9,dabbleAngle:0};
+    const d={id:++this.sequence,species:'duck',caution:this.temperamentRandom(),variant:this.nextVariant(),scale:.92+this.random()*.16,position:p.clone(),velocity:new THREE.Vector3(),yaw:this.random()*Math.PI*2,age:0,state:'arriving',opacity:0,stepPhase:0,swimming:false,medium:'air',dabbleAt:this.time+6+this.random()*9,dabbleAngle:0};
     d.flightTo=p.clone();d.flightTo.y=this.surface(terrain,p).y+.10*d.scale;
     d.flightFrom=d.flightTo.clone().add(new THREE.Vector3(-2.2,3.2,-1.4));d.position.copy(d.flightFrom);d.yaw=Math.atan2(-1.4,2.2);
     this.ducks.push(d);
@@ -60,16 +61,18 @@ export class DuckFlock {
   }
   return false;
  }
- depart(threat=null){
-  for(const d of this.ducks){
-   if(d.state==='departing')continue;
-   const away=threat?d.position.clone().sub(threat):new THREE.Vector3(Math.cos(d.yaw),0,-Math.sin(d.yaw));away.y=0;
-   if(away.lengthSq()<.01)away.set(-1,0,1);away.normalize();
-   d.flightFrom=d.position.clone();d.flightTo=d.position.clone().addScaledVector(away,3.8);d.flightTo.y+=3.8;
-   d.flightYaw=Math.atan2(-away.z,away.x);d.state='departing';d.age=0;d.departOpacity=d.opacity;d.hop=null;d.dabbleAngle=0;d.tilt=0;d.swimming=false;d.medium='air';
-  }
-  this.nextArrival=this.time+22;
+ scare(threat=null){
+  for(const d of this.ducks)scheduleFlee(d,this.time,threat,this.temperamentRandom);
+  this.nextArrival=Math.max(this.nextArrival,this.time+22);
  }
+ departOne(d,threat=null){
+  if(d.state==='departing')return;
+  const away=threat?d.position.clone().sub(threat):new THREE.Vector3(Math.cos(d.yaw),0,-Math.sin(d.yaw));away.y=0;
+  if(away.lengthSq()<.01)away.set(-1,0,1);away.normalize();
+  d.flightFrom=d.position.clone();d.flightTo=d.position.clone().addScaledVector(away,3.8);d.flightTo.y+=3.8;
+  d.flightYaw=Math.atan2(-away.z,away.x);d.state='departing';d.age=0;d.departOpacity=d.opacity;d.hop=null;d.dabbleAngle=0;d.tilt=0;d.swimming=false;d.medium='air';d.fleeAt=null;d.fleeThreat=null;
+ }
+ depart(threat=null){for(const d of this.ducks)this.departOne(d,threat);this.nextArrival=this.time+22;}
  updateFlight(d,dt,terrain){
   const arriving=d.state==='arriving',t=Math.min(1,d.age/3),previous=d.position.clone();
   if(arriving){
@@ -132,12 +135,12 @@ export class DuckFlock {
  step(dt,terrain,pointer=null,isClear=()=>true){
   this.time+=dt;
   if(!terrain?.views.length){if(this.ducks.length)this.depart();}
-  if(pointer&&this.ducks.some(d=>d.state!=='departing'&&distance(d.position,pointer)<1.6))this.depart(pointer);
+  if(pointer&&this.ducks.some(d=>d.state!=='departing'&&distance(d.position,pointer)<1.6))this.scare(pointer);
   if(this.ducks.length===1&&this.ducks[0].state!=='departing')this.depart();
   const lead=this.ducks[0];
-  if(lead&&!['arriving','departing','dabbling','entering-water','leaving-water'].includes(lead.state)&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
+  if(lead&&lead.fleeAt==null&&!['arriving','departing','dabbling','entering-water','leaving-water'].includes(lead.state)&&this.time>=this.nextMove){this.chooseTarget(terrain,isClear);this.nextMove=this.time+7+this.random()*5;}
   for(let i=0;i<this.ducks.length;i++){
-   const d=this.ducks[i];d.age+=dt;
+   const d=this.ducks[i];if(d.fleeAt!=null&&this.time>=d.fleeAt)this.departOne(d,d.fleeThreat);d.age+=dt;
    if(d.state==='arriving'||d.state==='departing'){
     if(d.state==='arriving'&&!this.clear(d.flightTo,terrain,isClear))this.depart();
     this.updateFlight(d,dt,terrain);continue;
@@ -148,6 +151,7 @@ export class DuckFlock {
    if(d.medium==='water'&&!currentWater){d.medium='land';d.swimming=false;d.state='walking';d.dabbleAngle=0;if(i===0){this.shoreVisit=true;this.habitatUntil=this.time+12;this.nextMove=this.time;}}
    if(d.state==='dabbling'&&currentWater){this.updateDabble(d,dt,currentWater);continue;}
    if(d.state==='swimming'&&currentWater&&this.time>=d.dabbleAt&&this.shoreDistance(terrain,currentWater.view,d.position)>.3){d.state='dabbling';d.dabbleAge=0;d.dabbleHold=3+this.random()*2;this.updateDabble(d,dt,currentWater);continue;}
+   if(d.fleeAt!=null){d.velocity.set(0,0,0);continue;}
    let target=this.target??d.position;
    if(i>0){
     const leader=this.ducks[i-1],gap=distance(d.position,leader.position);
@@ -187,8 +191,8 @@ export class DuckFlock {
    if(!pointer||!(terrain?.views??[]).some(v=>distance(pointer,{x:v.x,z:v.z})<2.5)){if(!this.spawn(terrain,isClear))this.nextArrival=this.time+3;}
   }
  }
- reset(){this.variantRandom=seededRandom(421);this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
- read(){return this.ducks.map(d=>({id:d.id,species:'duck',variant:d.variant,variantName:DUCK_VARIANTS[d.variant]?.name,scale:d.scale,state:d.state,medium:d.medium,dabbleAngle:d.dabbleAngle,position:d.position.toArray(),opacity:d.opacity}));}
+ reset(){this.variantRandom=seededRandom(421);this.temperamentRandom=seededRandom(915);this.ducks=[];this.sequence=0;this.time=0;this.nextArrival=11;this.target=null;this.nextMove=0;this.shoreVisit=false;this.habitatUntil=0;}
+ read(){return this.ducks.map(d=>({id:d.id,species:'duck',variant:d.variant,variantName:DUCK_VARIANTS[d.variant]?.name,scale:d.scale,caution:d.caution,bravery:1-(d.caution??.5),fleeIn:d.fleeAt==null?null:Math.max(0,d.fleeAt-this.time),state:d.state,medium:d.medium,dabbleAngle:d.dabbleAngle,position:d.position.toArray(),opacity:d.opacity}));}
 }
 
 export function duckMesh(variant='mallard'){

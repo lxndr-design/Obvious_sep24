@@ -10,11 +10,11 @@ import {WaveField} from '../src/waves.js';
 const advance=(fn,t)=>{for(let i=0;i<t*60;i++)fn(1/60);};
 function pool(holes=[{id:1,x:0,z:0,size:2}]){const terrain=new HoleTerrain(new THREE.Scene(),new THREE.MeshStandardMaterial());terrain.rebuild(new HoleLayout(holes));return terrain;}
 const at=(terrain,p)=>{const view=terrain.at(p.x,p.z);return view?{field:view.field,y:view.mesh.position.y+terrain.sample(view,p.x,p.z),uv:q=>terrain.uv(view,q)}:null;};
-test('duck admission creates pairs atomically, permits later singles and departs together',()=>{
+test('duck admission creates pairs atomically, permits later singles and staggers frightened departures',()=>{
  const terrain=pool(),flock=new DuckFlock();flock.nextArrival=0;flock.step(1/60,terrain);assert.equal(flock.ducks.length,2);
  flock.nextArrival=0;flock.step(1/60,terrain);assert.equal(flock.ducks.length,3);
- flock.step(1/60,terrain,flock.ducks[0].position.clone());assert.ok(flock.ducks.every(d=>d.state==='departing'));
- advance(dt=>{flock.step(dt,terrain);assert.notEqual(flock.ducks.length,1);},4);assert.equal(flock.ducks.length,0);
+ flock.step(1/60,terrain,flock.ducks[0].position.clone());assert.ok(flock.ducks.every(d=>d.fleeAt>flock.time));advance(dt=>flock.step(dt,terrain),2);assert.ok(flock.ducks.every(d=>d.state==='departing'));
+ advance(dt=>{flock.step(dt,terrain);assert.ok(flock.ducks.length!==1||flock.ducks[0].state==='departing');},4);assert.equal(flock.ducks.length,0);
  const blocked=new DuckFlock();blocked.nextArrival=0;blocked.step(1/60,terrain,null,()=>false);assert.equal(blocked.ducks.length,0,'no partial pair when blocked');
 });
 test('ducks glide and walk with shoreline transition hops, stay near companions, and drive actual waves',()=>{
@@ -85,11 +85,11 @@ test('ducks fly down into a pool, then take off away from the pointer before fad
  const d=f.ducks[0],start=d.position.clone(),landing=d.flightTo.clone();assert.equal(d.medium,'air');assert.equal(d.opacity,0);assert.ok(start.y>landing.y+3);
  advance(dt=>f.step(dt,terrain),1);assert.ok(d.position.y<start.y-.5&&d.position.y>landing.y+1);assert.ok(d.opacity>.4&&d.opacity<1);assert.ok(d.position.distanceTo(landing)<start.distanceTo(landing));
  advance(dt=>f.step(dt,terrain),2.05);assert.equal(d.state,'swimming');assert.equal(d.medium,'water');assert.equal(d.opacity,1);assert.ok(d.position.y<.2);
- d.state='dabbling';d.dabbleAngle=-Math.PI/2;d.hop={};const before=d.position.clone(),threat=before.clone().add(new THREE.Vector3(.5,0,0));
- f.step(1/60,terrain,threat);assert.ok(f.ducks.every(duck=>duck.state==='departing'));assert.equal(d.hop,null);assert.equal(d.dabbleAngle,0);
+ d.state='dabbling';d.dabbleAge=.35;d.dabbleHold=4;d.dabbleAngle=-Math.PI/2;d.hop=null;const before=d.position.clone(),threat=before.clone().add(new THREE.Vector3(.5,0,0));
+ f.step(1/60,terrain,threat);assert.ok(f.ducks.every(duck=>duck.fleeAt!=null));while(d.state!=='departing')f.step(1/60,terrain,threat);assert.equal(d.hop,null);assert.equal(d.dabbleAngle,0);
  const destination=d.flightTo.clone();advance(dt=>f.step(dt,terrain,threat),.7);
  assert.ok(d.position.y>before.y+1);assert.ok(d.position.x<before.x);assert.ok(d.opacity>.9,'visible while taking off');assert.ok(d.flightTo.distanceTo(destination)<1e-9,'pointer does not restart the escape');
- advance(dt=>f.step(dt,terrain),1.4);assert.ok(d.opacity<.4&&d.position.y>before.y+3);advance(dt=>f.step(dt,terrain),1);assert.equal(f.ducks.length,0);
+ advance(dt=>f.step(dt,terrain),1.4);assert.ok(d.opacity<.4&&d.position.y>before.y+3);advance(dt=>f.step(dt,terrain),3);assert.equal(f.ducks.length,0);
 });
 test('pool removal during arrival redirects the flock into an escape without snapping to the ground',()=>{
  const terrain=pool(),f=new DuckFlock();f.nextArrival=0;f.step(1/60,terrain);advance(dt=>f.step(dt,terrain),1);

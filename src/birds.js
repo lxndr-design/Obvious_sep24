@@ -1,3 +1,4 @@
+import {scheduleFlee} from './bird-fear.js';
 import {birdSpecies,updateBirdGait} from './bird-gait.js';
 import * as THREE from 'three';
 import {animateBirdWings} from './bird-wings.js';
@@ -15,10 +16,11 @@ export class BirdColony {
   // Pointer ground rays must also disturb elevated baths.
   for(const site of sites)if(Math.hypot(position.x-site.position.x,position.z-site.position.z)<2.1)this.quiet.set(site.id,this.time);
   const startled=this.birds.filter(b=>b.state!=='departing'&&(b.position.distanceTo(position)<1.65||(b.habitat==='bath'&&Math.hypot(b.position.x-position.x,b.position.z-position.z)<1.65)));
-  for(const b of this.birds)if(b.state!=='departing'&&(startled.includes(b)||startled.some(n=>n.position.distanceTo(b.position)<1.4)))this.depart(b,position);
+  for(const b of this.birds)if(b.state!=='departing'&&(startled.includes(b)||startled.some(n=>n.position.distanceTo(b.position)<1.4)))this.scare(b,position);
  }
+ scare(b,from){return scheduleFlee(b,this.time,from,this.temperamentRandom);}
  depart(b,from){
-  if(b.state==='departing')return;b.seedField?.release(b.id);b.stickCollection?.release(b.id);b.state='departing';b.age=0;b.from=b.position.clone();
+  if(b.state==='departing')return;b.fleeAt=null;b.fleeThreat=null;b.seedField?.release(b.id);b.stickCollection?.release(b.id);b.state='departing';b.age=0;b.from=b.position.clone();
   const away=b.position.clone().sub(from??b.position.clone().add(new THREE.Vector3(1,0,1)));away.y=0;if(away.lengthSq()<.01)away.set(-1,0,1);away.normalize();
   b.to=b.position.clone().addScaledVector(away,3.5).add(new THREE.Vector3(0,4.1,0));b.startOpacity=b.opacity;b.yaw=Math.atan2(-(b.to.z-b.from.z),b.to.x-b.from.x);
   this.quiet.set(b.pileId,this.time);this.nextArrival=Math.max(this.nextArrival,this.time+11);
@@ -37,12 +39,12 @@ export class BirdColony {
  hop(b,target,nextState){b.state='hopping';b.age=0;b.from=b.position.clone();b.to=target;b.nextState=nextState;b.yaw=Math.atan2(-(target.z-b.from.z),target.x-b.from.x);}
  step(dt,sites,pointer=null,isClear=()=>true){
   this.time+=dt;if(pointer)this.disturb(pointer,sites);
-  for(const b of this.birds){const previous=b.position.clone();b.age+=dt;b.visitAge=(b.visitAge??0)+dt;
+  for(const b of this.birds){const previous=b.position.clone();if(b.fleeAt!=null&&this.time>=b.fleeAt)this.depart(b,b.fleeThreat);b.age+=dt;b.visitAge=(b.visitAge??0)+dt;
    if(b.state!=='feeding'&&b.seedSearchWait>0)b.seedSearchWait=Math.max(0,b.seedSearchWait-dt);
    const clear=(p,site)=>isClear(p,site,b);
    let site=sites.find(p=>p.id===b.pileId&&available(p));
    b.scale??=sampleBirdScale(this.traitRandom);b.caution??=this.temperamentRandom();b.fullness??=0;b.capacity??=6+Math.floor(this.random()*10);b.fatness??=0;
-   if(canNoticeSeed(b)){
+   if(b.fleeAt==null&&canNoticeSeed(b)){
     const food=sites.filter(p=>p.kind==='seed'&&p.count>0&&p.position.distanceTo(b.position)<8&&p.field.available(p.id).some(s=>s.settled&&s.owner===null&&clear(seedLanding(s,b),p))).sort((a,c)=>a.position.distanceToSquared(b.position)-c.position.distanceToSquared(b.position))[0];
     if(food&&b.foodInterest!==food.id){b.foodInterest=food.id;b.noticeAt=this.time+.6+b.caution*3.2+this.temperamentRandom()*.7;}
     if(!food)b.foodInterest=null;
@@ -50,13 +52,14 @@ export class BirdColony {
     if(seed){b.seedField=food.field;b.seedId=seed.id;b.eatTime=0;b.foodWait=0;b.pileId=food.id;b.habitat='seed';b.target=seedLanding(seed,b);b.sitePosition=food.position.clone();b.state='considering';b.reactDuration=.35+b.caution*1.7+this.temperamentRandom()*.45;b.residentArrival=true;b.age=0;b.foodInterest=null;site=food;}
 
    }
-   if((['foraging','perching'].includes(b.state)||b.state==='sated'&&b.age>b.lingerDuration*.5)&&!b.carriedStick){
+   if((['foraging','perching'].includes(b.state)||b.state==='sated'&&b.age>b.lingerDuration*.5)&&!b.carriedStick&&b.fleeAt==null){
     const stick=sites.filter(s=>s.kind==='stick'&&s.position.distanceTo(b.position)<8&&this.time-(this.quiet.get(s.id)??0)>3).sort((a,c)=>a.position.distanceToSquared(b.position)-c.position.distanceToSquared(b.position)).find(s=>clear(stickLanding(s,b),s)&&s.collection.claim(s,b.id));
     if(stick){b.stickCollection=stick.collection;b.pileId=stick.id;b.habitat='stick';b.target=stickLanding(stick,b);b.sitePosition=stick.position.clone();b.from=b.position.clone();b.state='arriving';b.residentArrival=true;b.age=0;b.yaw=Math.atan2(-(b.target.z-b.from.z),b.target.x-b.from.x);site=stick;}
    }
    if(b.state==='feeding'&&!site&&b.fullness>0)this.linger(b);
    if(['sated','lingering'].includes(b.state)&&!clear(b.position,site))this.depart(b,pointer);
    if(!['departing','sated','lingering'].includes(b.state)&&(!site||!clear(b.target,site)||(['bath','stick'].includes(b.habitat)&&site.position.distanceTo(b.sitePosition)>.02)))this.depart(b,pointer);
+   if(b.fleeAt!=null&&!['arriving','hopping'].includes(b.state)){b.peck=0;updateBirdGait(b,b.position,dt);animateBirdWings(b,dt);continue;}
    if(b.state==='arriving'){
     const duration=b.habitat==='seed'?2.3+(b.caution??0)*1.8:2.8;b.arrivalDuration=duration;const t=Math.min(1,b.age/duration);b.position.lerpVectors(b.from,b.target,smooth(t));if(b.residentArrival){
      // Lift above the fountain rim before crossing it, then descend onto food.
