@@ -1,4 +1,4 @@
-import {messageHopBounds} from './message-hops.js';
+import {messageDotPosition} from './message-dot.js';
 import {MessagePlayer} from './object-properties.js';
 import * as THREE from 'three';
 const el=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
@@ -45,12 +45,10 @@ export class ObjectMessages {
   const width=canvas.clientWidth,height=canvas.clientHeight;
   for(const o of visible){
    let dot=this.dots.get(o);if(!dot){dot=el('span');dot.className='message-seen-dot';dot.setAttribute('aria-hidden','true');this.stage.append(dot);this.dots.set(o,dot);}
-   const box=messageHopBounds(o);let right=-Infinity,top=Infinity,inDepth=false;
-   for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){
-    const p=new THREE.Vector3(x,y,z).project(camera);right=Math.max(right,(p.x+1)*width/2);top=Math.min(top,(1-p.y)*height/2);inDepth||=p.z>=-1&&p.z<=1;
-   }
-   dot.hidden=!inDepth||right<0||right>width-8||top<0||top>height;
-   dot.style.left=(right+3)+'px';dot.style.top=(top-3)+'px';
+   const p=messageDotPosition(o.mesh,camera,width,height);
+   dot.hidden=!p||p.x<0||p.x>width||p.y<0||p.y>height;
+   if(p){dot.style.left=p.x+'px';dot.style.top=p.y+'px';}
+
   }
  }
  step(dt,camera,canvas,objects=[]){this.updateDots(objects,camera,canvas);if(this.grace>0&&!this.over){this.grace-=dt;if(this.grace<=0)this.clear();}if(this.player.step(dt))this.render();const o=this.player.object;if(!o)return;const p=o.mesh.localToWorld(new THREE.Vector3(0,o.height/2+.25,0)).project(camera),r=canvas.getBoundingClientRect();this.bubble.style.left=Math.max(12,Math.min(r.width-this.bubble.offsetWidth-12,(p.x+1)*r.width/2-this.bubble.offsetWidth/2))+'px';this.bubble.style.top=Math.max(85,(1-p.y)*r.height/2-this.bubble.offsetHeight-10)+'px';}
