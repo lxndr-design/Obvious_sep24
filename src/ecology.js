@@ -1,3 +1,4 @@
+import {messageHopBounds} from './message-hops.js';
 import {poseDuckGait,birdSpecies} from './bird-gait.js';
 import {GrandmaFeeding} from './grandma.js';
 import {StickCollection,attachCarriedStick} from './sticks.js';
@@ -134,6 +135,31 @@ export class Ecology {
   }
   const view=this.terrain?.at(position.x,position.z);
   return view?{field:view.field,y:view.mesh.position.y+this.terrain.sample(view,position.x,position.z),uv:p=>this.terrain.uv(view,p)}:null;
+ }
+ objectHop({kind,members,height}){
+  const strength=Math.min(1.4,Math.max(.08,height*4))*(kind==='landing'?1:-.65),basins=new Set();
+  for(const o of members){
+   const bounds=messageHopBounds(o),center=bounds.getCenter(new THREE.Vector3());
+   const bath=this.bathViews.get(o);
+   if(bath?.group.visible&&!basins.has(bath.field)){
+    basins.add(bath.field);const uv=bath.uv(center);bath.field.disturb(uv.u,uv.v,strength,.2);
+    if(kind==='landing')bath.splash(center);
+   }
+   // Sample the footprint, so wide forms also disturb water along their edges.
+   for(const x of [bounds.min.x,center.x,bounds.max.x])for(const z of [bounds.min.z,center.z,bounds.max.z]){
+    const water=this.terrain?.at(x,z);if(!water||bounds.min.y>water.mesh.position.y+.02)continue;
+    this.terrain.disturb(x,z,strength/3,.11);
+   }
+   if(kind!=='takeoff')continue;
+   const attached=bird=>{
+    if(bird.pileId===`bath-${o.id}`)return true;
+    if(['arriving','departing'].includes(bird.state)||!bounds.clone().expandByScalar(.2).containsPoint(bird.position))return false;
+    const radius=.13*(bird.scale??1),probe=new this.R.Ball(radius);
+    return o.parts.some(part=>{const p=this.collision.position(part,o.mesh.position,o.mesh.quaternion);const hit=probe.contactShape(bird.position,IDENTITY,part.shape,p,o.mesh.quaternion,.02);return hit&&hit.distance<=.02;});
+   };
+   for(const bird of this.colony.birds)if(attached(bird))this.colony.depart(bird,center);
+   for(const duck of this.ducks.ducks)if(attached(duck))this.ducks.departOne(duck,center);
+  }
  }
  clearSpot(position,site,bird){
   const scale=bird?.scale??1;

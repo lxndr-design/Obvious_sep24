@@ -1,4 +1,4 @@
-import {Vector3} from 'three';
+import {Vector3,Box3} from 'three';
 
 const hasMessage=o=>!o.properties?.locked&&o.properties?.messages?.some(m=>m.text?.trim());
 // Carry upper stack members and joined tiles together so a hop cannot pull a
@@ -19,28 +19,33 @@ export function messageHopMembers(root,objects){
  }
  return members;
 }
+export function messageHopBounds(o){
+ if(!o.mesh.geometry.boundingBox)o.mesh.geometry.computeBoundingBox();
+ o.mesh.updateWorldMatrix(true,false);return new Box3().copy(o.mesh.geometry.boundingBox).applyMatrix4(o.mesh.matrixWorld);
+}
+export function messageHopSize(o){const size=messageHopBounds(o).getSize(new Vector3());return Math.max(size.x,size.y,size.z,.01);}
 export class MessageHops {
- constructor(random=Math.random){this.random=random;this.time=0;this.schedule=new Map();this.active=null;this.offsets=new Map();}
- reset(){this.time=0;this.schedule.clear();this.active=null;this.offsets.clear();}
+ constructor(random=Math.random){this.random=random;this.time=0;this.schedule=new Map();this.active=null;this.offsets=new Map();this.events=[];}
+ reset(){this.time=0;this.schedule.clear();this.active=null;this.offsets.clear();this.events=[];}
  step(dt,objects,{disabled=false,busy=()=>false,clear=()=>true}={}){
-  this.time+=Math.max(0,dt);this.offsets.clear();
-  const eligible=objects.filter(o=>o.type!=='pool'&&hasMessage(o));
+  this.time+=Math.max(0,dt);this.offsets.clear();this.events=[];
+  const eligible=objects.filter(o=>o.type!=='pool'&&!o.messageSeen&&hasMessage(o));
   for(const o of this.schedule.keys())if(!eligible.includes(o))this.schedule.delete(o);
   for(const o of eligible)if(!this.schedule.has(o))this.schedule.set(o,this.time+1.2+this.random()*2);
   const unavailable=members=>disabled||members.some(o=>!objects.includes(o)||o.properties?.locked||busy(o));
   if(this.active){
    const a=this.active;
-   if(!eligible.includes(a.root)||unavailable(a.members)||!clear(a.members,a.height)){this.schedule.set(a.root,this.time+6+this.random()*6);this.active=null;}
-   else{a.age+=dt;if(a.age>=.36){this.schedule.set(a.root,this.time+6+this.random()*7);this.active=null;}}
+   if(!hasMessage(a.root)||unavailable(a.members)||!clear(a.members,a.height)){this.schedule.set(a.root,this.time+6+this.random()*6);this.active=null;}
+   else{a.age+=dt;if(a.age>=a.duration){this.events.push({...a,kind:'landing'});this.schedule.set(a.root,this.time+6+this.random()*7);this.active=null;}}
   }
   if(!this.active&&!disabled)for(const root of eligible){
    if(this.time<this.schedule.get(root))continue;
-   const members=messageHopMembers(root,objects),height=Math.min(.13,Math.max(.06,(root.height??1)*.07));
+   const members=messageHopMembers(root,objects),size=messageHopSize(root),height=size*.085,duration=Math.max(.24,Math.min(.55,.36*Math.sqrt(size)));
    if(unavailable(members)||!clear(members,height)){this.schedule.set(root,this.time+.8);continue;}
    // One little hop at a time keeps a scene of message objects from bouncing in unison.
-   this.active={root,members,height,age:0};break;
+   this.active={root,members,height,duration,age:0};this.events.push({...this.active,kind:'takeoff'});break;
   }
-  if(this.active){const a=this.active,t=a.age/.36,lift=a.height*4*t*(1-t);for(const o of a.members)this.offsets.set(o,lift);}
+  if(this.active){const a=this.active,t=a.age/a.duration,lift=a.height*4*t*(1-t);for(const o of a.members)this.offsets.set(o,lift);}
  }
  withPresentation(render){
   const saved=[...this.offsets].map(([o,y])=>({o,position:o.mesh.position.clone(),y}));

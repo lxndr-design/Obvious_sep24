@@ -2,6 +2,7 @@ import {applyGrandmaPlacement,disposeGrandma,GRANDMA_OUTFITS,GRANDMA_HAIR} from 
 import './style.css';
 import {properties,applyMaterialProperties,canManipulate} from './object-properties.js';
 import {ObjectInspector,ObjectMessages} from './object-inspector.js';
+import {HopPuffs} from './hop-puffs.js';
 import {MessageHops,hopClearance} from './message-hops.js';
 import {applySceneTheme} from './theme.js';
 import * as THREE from 'three';
@@ -57,7 +58,7 @@ ecology.sticks.canTake=o=>state.drag?.object!==o&&!state.objects.some(child=>chi
 ecology.sticks.onTake=o=>{const selected=state.selected;remove(o);if(selected&&selected!==o)select(selected);return !state.objects.includes(o);};
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
-const messageHops=new MessageHops(),reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
+const hopPuffs=new HopPuffs(scene),messageHops=new MessageHops(),reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0x57794a);selectionBox.material.depthTest=false;selectionBox.material.transparent=true;selectionBox.material.opacity=.55;selectionBox.visible=false;selectionBox.renderOrder=10;scene.add(selectionBox);
 const cursorGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.24,.012,-.24),new THREE.Vector3(.24,.012,-.24),new THREE.Vector3(.24,.012,.24),new THREE.Vector3(-.24,.012,.24),new THREE.Vector3(-.24,.012,-.24)]);const gridCursor=new THREE.Line(cursorGeometry,new THREE.LineBasicMaterial({color:0x57794a,transparent:true,opacity:.7}));gridCursor.visible=false;scene.add(gridCursor);
 const cableMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9,transparent:true,depthWrite:false});
@@ -138,7 +139,7 @@ function remove(o,force=false){
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
-function reset(){messageHops.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
+function reset(){messageHops.reset();hopPuffs.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
  addHole([2,0],2);
  addObject('arch',[-3,0],false,5,null,Math.PI/2);
  const fountain=addObject('fountain',[2,0]);if(fountain)fountain.properties.messages=[{text:'drag me',choices:[]}];
@@ -380,10 +381,12 @@ function tick(now){
  shadowClock+=dt;if(shadowClock>=1/30){renderer.shadowMap.needsUpdate=true;shadowClock=0;}
  presentation.step(dt);
  const dragged=state.drag?.object?new Set(stacks.members(state.drag.object)):new Set();
- messageHops.step(dt,state.objects,{disabled:state.paused||reducedMotion.matches,busy:o=>dragged.has(o)||presentation.motion.has(o)||messages.player.object===o,clear:(members,height)=>hopClearance(stacks,members,height)});
+ messageHops.step(dt,state.objects,{disabled:state.paused||reducedMotion.matches,busy:o=>dragged.has(o)||presentation.motion.has(o),clear:(members,height)=>hopClearance(stacks,members,height)});
+ for(const event of messageHops.events){ecology.objectHop(event);if(event.kind==='takeoff')hopPuffs.emit(event.members,p=>ecology.waterAt(p));}
+ hopPuffs.step(state.paused?0:dt,camera);
  presentation.withPresentation(()=>messageHops.withPresentation(()=>{
   for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
-  if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas);
+  if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas,[...state.objects,...state.holes]);
   dither.uniforms.hangingBlur.value=+hangingFocus.render(renderer,camera,state.objects);
   refraction.render(renderer,scene,camera,[...terrain.views.map(v=>v.mesh),...[...ecology.bathViews.values()].map(v=>v.mesh)]);
   composer.render();
@@ -392,6 +395,6 @@ function tick(now){
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
-const api={read:()=>({ready:state.ready,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
+const api={read:()=>({ready:state.ready,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
 window.whitewater=api;
 if(document.modelContext?.registerTool){const lifecycle=new AbortController();window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});for(const tool of [{name:'read_scene',description:'Read the shapes and their positions in the scene.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>api.read()},{name:'add_form',description:'Add a white geometric form to an available floor position.',inputSchema:{type:'object',properties:{shape:{type:'string',enum:[...Object.keys(LABELS),'pool']}},required:['shape'],additionalProperties:false},execute:input=>({id:api.add(input.shape)})},{name:'move_form',description:"Reposition a floor form or a hanging form’s ceiling anchor to a grid position if the path is clear.",inputSchema:{type:'object',properties:{id:{type:'number'},x:{type:'number'},z:{type:'number'}},required:['id','x','z'],additionalProperties:false},execute:input=>({moved:api.move(input.id,input.x,input.z)})}]){try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(console.warn);}catch(error){console.warn(error);}}}
