@@ -1,3 +1,5 @@
+import {installTrackpadPan} from './camera-pan.js';
+import {DEFAULT_PARK} from './default-scene.js';
 import {isSign,applySignPlacement,decorateSign,disposeSign,stepSign,SIGN_VARIANTS} from './signs.js';
 import {SignFocus,PoleEye} from './sign-focus.js';
 import {SignInspector} from './sign-inspector.js';
@@ -62,6 +64,7 @@ ecology.sticks.onTake=o=>{const selected=state.selected;remove(o);if(selected&&s
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
 const signFocus=new SignFocus(camera,controls);
+installTrackpadPan(canvas,camera,controls,()=>signFocus.active||!!state.drag||!!toolbarDrag);
 const poleEye=new PoleEye($('stage'),pole=>{cancelDrag();cancelToolbarDrag();messages.clear();select(null);signFocus.enter(pole,state.objects,canvas.clientWidth,canvas.clientHeight);poleEye.over=false;poleEye.hover=false;poleEye.pole=null;notify('Click empty space to return');});
 let hoveredSign=null;
 const hopPuffs=new HopPuffs(scene),messageHops=new MessageHops(),reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
@@ -147,10 +150,10 @@ function remove(o,force=false){
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
 function reset(){signFocus.exit(true);hoveredSign=null;messageHops.reset();hopPuffs.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
- addHole([2,0],2);
- addObject('arch',[-3,0],false,5,null,Math.PI/2);
- const fountain=addObject('fountain',[2,0]);if(fountain)fountain.properties.messages=[{text:'drag me',choices:[]}];
- addObject('bench',[-1.5,0],false,5,null,Math.PI/2);
+ for(const position of DEFAULT_PARK.pools)addHole(position,2);
+ const fountain=addObject('fountain',DEFAULT_PARK.fountain);if(fountain)fountain.properties.messages=[{text:'drag me',choices:[]}];
+ for(const bench of DEFAULT_PARK.benches)addObject('bench',bench.position,false,5,null,bench.rotation);
+ const grandma=addObject('grandma-skirt-bun');if(grandma){stacks.placeGrandma(grandma,new THREE.Vector3(DEFAULT_PARK.grandma[0],0,DEFAULT_PARK.grandma[1]));pendulums.rebuild(grandma);}
  select(null);terrain.reset();ecology.reset();state.paused=false;$('pause').innerHTML='Pause <span>Ⅱ</span>';$('pause').setAttribute('aria-pressed','false');home();notify('');}
 
 const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),plane=new THREE.Plane(new THREE.Vector3(0,1,0),0),point=new THREE.Vector3();
