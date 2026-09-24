@@ -29,9 +29,10 @@ import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {LABELS} from './shapes.js';
 import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
-import {RoomClient,loadIdentity,saveIdentity,STATUS} from './net/client.js';
+import {RoomClient,loadIdentity,saveIdentity,STATUS,readJoinToken} from './net/client.js';
 import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
 import {LIMITS} from './net/protocol.js';
+import {createGovernance} from './governance.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
 import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
@@ -105,6 +106,20 @@ const room=new RoomClient({
 const boardSync=new BoardReplicator(room.identity.id);
 let syncingRemote=false; // true while applying remote state — never re-announce it
 let messageSyncTimer; // coalesces inspector text keystrokes into one board op
+// A share link (#join=<token>) admits the visitor with its embedded role (U4).
+// Applied only when this browser holds no session token of its own yet — an
+// identity already on the board keeps its role — and the fragment is always
+// consumed so a reload does not replay it.
+const joinToken=readJoinToken(location.hash);
+if(joinToken&&!room.identity.token){room.identity.token=joinToken;saveIdentity(room.storage,room.identity);}
+history.replaceState(null,'',location.pathname+location.search);
+const governance=createGovernance({
+ client:room,
+ members:()=>[{id:room.identity.id,name:playerName,role:playerRole},...[...room.roster.players.values()].map(p=>({id:p.id,name:p.name,role:p.role}))],
+ selfRole:()=>playerRole,
+ shareBase:()=>location.origin+location.pathname,
+ notify,
+});
 // Free spot hugging the back edge of the park, clear of solids and other players.
 function findSpawnSpot(minSeparation=1.5){
  const taken=[...entities.values()].map(entry=>entry.entity.group.position);
@@ -131,6 +146,7 @@ function despawnEntity(id){
 }
 function despawnSelf(){if(selfEntity)despawnEntity(room.identity.id);}
 function onRoomEvent(event){
+ governance.onRoomEvent(event);
  switch(event.type){
   case 'welcome':
    // The server may have assigned Player-####; adopt and persist it so the
@@ -147,8 +163,12 @@ function onRoomEvent(event){
   case 'player-move': {const entry=entities.get(event.id);if(entry){entry.entity.setLeaving(false);entry.entity.setPose(event.pose);}}break;
   case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=nameTagLabel(event.player.name,entry.entity.self);updatePlayerBadge();}}break;
   case 'boardOp': if(boardSync.receive(event.op,event.by,event.revision)==='apply')applyRemoteOp(event.op);break;
-  case 'roleChange': if(event.playerId===room.identity.id){playerRole=event.role;updatePlayerBadge();}break;
   case 'chat': showChat(event);break;
+  case 'roleChange':
+   // Grant, revoke or claim landing on this identity: adopt the role so the
+   // badge and governance console reflect it (the server is the authority).
+   if(event.playerId===room.identity.id){playerRole=event.role;updatePlayerBadge();}
+   break;
   case 'status': case 'lost': updatePlayerBadge();break;
   case 'error': if(event.code==='INVALID'||event.code==='FORBIDDEN')boardSync.rejected();notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
   case 'left': despawnSelf();updatePlayerBadge();notify('You left the board');break;
