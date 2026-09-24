@@ -26,10 +26,12 @@ test('splash.html wires the splash entry and never references app glue',()=>{
  assert.doesNotMatch(html,/src\/main\.js/);
 });
 
-test('splash entry owns its CSS, boots Rapier, and never imports app glue',()=>{
+test('splash entry owns its CSS, boots SplashKit, and never imports app glue',()=>{
  const entry=read('src','splash-entry.js');
  assert.match(entry,/import '\.\/splash\.css';/);
- assert.match(entry,/await R\.init\(\)/);
+ assert.match(entry,/createSplashKit/);
+ assert.match(entry,/window\.splashkit/); // distinct global — whitewater is taken
+ assert.doesNotMatch(entry,/rapier3d|@dimforge/i); // main thread never imports Rapier
  assert.doesNotMatch(entry,/import ['"]\.\/style\.css/);
  assert.doesNotMatch(entry,/import ['"]\.\/main\.js/);
  assert.doesNotMatch(entry,/import ['"]\.\/entry\.js/);
