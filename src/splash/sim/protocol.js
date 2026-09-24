@@ -57,6 +57,19 @@ const CHECKS={
   if(!finite(msg.strength))fail('impulse.strength must be a finite number');
   if(!finite(msg.radius)||msg.radius<=0)fail('impulse.radius must be positive');
  },
+ // Spring-pull drag on one body: id + the world-space target. Repeat messages
+ // move the target; the worker replaces behavior and pointer forces for the
+ // held body while a drag is active.
+ drag(msg){
+  if(!uint(msg.id))fail('drag.id must be a non-negative integer');
+  if(!vec3(msg.p))fail('drag.p must be [x,y,z]');
+ },
+ // End of a drag; v is the pointer-velocity throw in world units/s. A release
+ // without v ends the drag and keeps whatever velocity the spring imparted.
+ dragRelease(msg){
+  if(!uint(msg.id))fail('dragRelease.id must be a non-negative integer');
+  if(msg.v!==undefined&&!vec3(msg.v))fail('dragRelease.v must be [x,y,z]');
+ },
  poses(msg){
   const{frame,count,positions,quaternions,sleep,ids}=msg;
   if(!uint(frame))fail('poses.frame must be a non-negative integer');

@@ -28,6 +28,9 @@ export const WORLD_DEFAULTS={
  waveAmp:3,waveFreq:1.2,waveDamp:1.5,waveAnchorK:.8,
  bouncePlane:-3,bounceSpring:160,bounceDamp:3,
  pointerK:40,
+ // Drag spring — the repo-proven pull gains from pendulums (beginPull /
+ // setPullTarget): a = (target-p)*K - v*D, clamped, force = a * mass.
+ dragK:85,dragDamp:17,dragClamp:95,
 };
 
 // Behavior forces are worker-side per-body accelerations applied every fixed
@@ -87,6 +90,7 @@ export class SplashWorld{
   this.bodies=[];
   this.byId=new Map();
   this.pointer={mode:'off',p:[0,0,0],strength:0,radius:1};
+  this._drag=null; // {id, p} while a body is spring-pulled by the cursor
   this.makeFloor();
  }
 
@@ -172,7 +176,10 @@ export class SplashWorld{
    this.byId.delete(id);
    removed.push(id);
   }
-  if(removed.length)this.bodies=this.bodies.filter(b=>this.byId.has(b.id));
+  if(removed.length){
+   this.bodies=this.bodies.filter(b=>this.byId.has(b.id));
+   if(this._drag&&removed.includes(this._drag.id))this._drag=null; // never drag a removed body
+  }
   return removed;
  }
 
@@ -203,6 +210,25 @@ export class SplashWorld{
   this.pointer={mode,p,strength,radius};
  }
 
+ // Spring-pull drag (repo-proven pattern): one body follows a stiff target
+ // each step. Repeat calls move the target — the cursor never re-grabs.
+ drag(id,p){
+  this._drag={id,p:[p[0],p[1],p[2]]};
+ }
+
+ // End the drag; v is the pointer-velocity throw (world units/s) applied to
+ // the held body. Only the active drag id may release — a stale release for a
+ // body that was never grabbed (or already released) must not fling anything.
+ releaseDrag(id,v){
+  if(!this._drag||this._drag.id!==id)return false;
+  if(v){
+   const b=this.byId.get(id);
+   if(b)b.body.setLinvel({x:v[0],y:v[1],z:v[2]},true);
+  }
+  this._drag=null;
+  return true;
+ }
+
  // Click shockwave: a velocity kick (impulse = mass * dv) that falls off
  // linearly with distance; the bounds helper extent keeps near-grazers honest.
  impulse({p,strength,radius}){
@@ -224,18 +250,31 @@ export class SplashWorld{
  // over settled bodies must wake them), so steady-state cost tracks active
  // bodies, not total bodies.
  applyForces(){
-  const cfg=this.config,ptr=this.pointer;
+  const cfg=this.config,ptr=this.pointer,drag=this._drag;
   const ptrActive=ptr.mode!=='off'&&ptr.strength!==0;
   const out={x:0,y:0,z:0}; // reused across the pass — no per-body allocation
   const F={x:0,y:0,z:0};
   for(const b of this.bodies){
    const body=b.body;
-   if(!ptrActive&&body.isSleeping()){b.forced=false;continue;}
+   const dragged=drag!==null&&drag.id===b.id;
+   if(!ptrActive&&!dragged&&body.isSleeping()){b.forced=false;continue;}
    const p=body.translation();
    const behavior=FORCES[b.behavior];
    out.x=0;out.y=0;out.z=0;
    let forced=false;
-   if(behavior||ptrActive){
+   if(dragged){
+    // Held body: the drag spring replaces behavior AND pointer forces —
+    // user intent outranks the magnet and the behavior layer (same shape as
+    // pendulums' pull: acceleration = spring - damping, clamped, x mass).
+    const v=body.linvel();
+    let ax=(drag.p[0]-p.x)*cfg.dragK-v.x*cfg.dragDamp;
+    let ay=(drag.p[1]-p.y)*cfg.dragK-v.y*cfg.dragDamp;
+    let az=(drag.p[2]-p.z)*cfg.dragK-v.z*cfg.dragDamp;
+    const mag=Math.hypot(ax,ay,az);
+    if(mag>cfg.dragClamp){const k=cfg.dragClamp/mag;ax*=k;ay*=k;az*=k;}
+    out.x=ax;out.y=ay;out.z=az;
+    forced=true;
+   }else if(behavior||ptrActive){
     // Velocity is only consumed by behavior forces and the pointer term.
     const v=body.linvel();
     if(behavior)forced=behavior(b,p,v,SIM_DT,cfg,out)??true;

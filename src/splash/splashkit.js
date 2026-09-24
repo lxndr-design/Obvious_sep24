@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {createEngine} from './core/engine.js';
 import {InstanceField} from './core/instance-field.js';
 import {BannerConfig} from './banner-config.js';
@@ -8,6 +9,7 @@ import {finishDisplaced} from './gen/bump-geometry.js';
 import {resolveBumpParams} from './gen/bump3d.js';
 import {PRESETS,presetGeometry} from './presets.js';
 import {createMaterial,setBumpMaterialParams} from './materials/index.js';
+import {cameraPlane,planePoint} from './interaction/pointer-plane.js';
 
 // SplashKit — the callable layer over three.js. DOM-free: the entry wires the
 // canvas, input and editor; everything here is headless-testable. Physics
@@ -119,6 +121,45 @@ export function createSplashKit(canvas,initial={}){
   sim.send({type:'impulse',kind:'radial',p:point,strength,radius});
  }
 
+ // Drag-throw protocol side: the controller computes targets and throw
+ // velocity; these only validate-forward. dragRelease without v ends the drag
+ // and keeps whatever velocity the spring imparted.
+ function drag(id,p){sim.send({type:'drag',id,p});}
+ function dragRelease(id,v){sim.send(v?{type:'dragRelease',id,v}:{type:'dragRelease',id});}
+
+ // Screen -> world mapping on the interaction plane — camera-facing through
+ // the scene origin (or `through` for a drag/drop plane). Returns [x,y,z] or
+ // null when the ray never reaches the plane. This is also the editor DnD
+ // ghost hook: a tile drag maps the pointer through here for its preview.
+ function screenToPlane(ndcX,ndcY,through){
+  const plane=cameraPlane(engine.camera,through);
+  const hit=planePoint(engine.camera,ndcX,ndcY,plane);
+  return hit?[hit.x,hit.y,hit.z]:null;
+ }
+
+ // Body under the cursor (raycast across every bucket) or null. Pooled slots
+ // are skipped — only live handles are pickable.
+ const _pickNdc=new THREE.Vector2();
+ const _pickRay=new THREE.Raycaster();
+ function pickBody(ndcX,ndcY){
+  // Matrix writes happen per rendered frame; a pointer event between frames
+  // would otherwise raycast last frame's poses — one frame of pick lag.
+  field.sync();
+  _pickNdc.set(ndcX,ndcY);
+  _pickRay.setFromCamera(_pickNdc,engine.camera);
+  let best=null,bestDist=Infinity;
+  for(const bucket of field.buckets.values()){
+   for(const hit of _pickRay.intersectObject(bucket.mesh,false)){
+    if(!Number.isFinite(hit.distance))continue; // degenerate zero-scale slots
+    const handle=bucket.bySlot[hit.instanceId];
+    if(!handle)continue; // free slot inside the high-water range
+    if(hit.distance<bestDist){best=handle;bestDist=hit.distance;}
+    break; // hits are distance-sorted; the first live one is this bucket's nearest
+   }
+  }
+  return best;
+ }
+
  // True-3D fractal bump for a preset: displaces a geometry clone through the
  // noise worker (off-thread — the render loop never waits on fBm math), then
  // registers it on the field so every bucket for that preset renders the
@@ -163,12 +204,12 @@ export function createSplashKit(canvas,initial={}){
  const kit={
   banner,
   // Exposed for the sim slice (worker attach + pose feeding) and tests; the
-  // editor panel never needs them.
-  sim,field,noise,
-  // Screen→world projection for the editor's drop placement (and later the
-  // pointer mapping): the engine owns the camera, the kit just surfaces it.
+  // editor panel never needs them. engine is test-only access to the camera;
+  // camera is the editor's drop-placement projection surface.
+  sim,field,noise,engine,
   camera:engine.camera,
-  spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,fractalBump,
+  spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,drag,dragRelease,
+  screenToPlane,pickBody,fractalBump,
   applyPoses:frame=>field.applyPoses(frame),
   stats,dispose,
  };
