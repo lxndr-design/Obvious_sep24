@@ -26,6 +26,7 @@ import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {LABELS} from './shapes.js';
+import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
@@ -282,26 +283,27 @@ canvas.addEventListener('keydown',e=>{
 function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o))||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');}updateCable(o);select(o);}
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add,null,false,5,null,0,+button.dataset.gridSize||2);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
-const pickerTypes={plant:'plant-snake-medium',table:'table-round-full',grandma:'grandma-skirt-bun',sign:'sign-arrow-text'};
+const pickerTypes={plant:'plant-snake-medium',table:'table-round-full',grandma:'grandma-skirt-bun',sign:'sign-arrow-text',home:'chair'};
 function openPicker(family){
- closeSizeMenu();pickerFamily=family;const plant=family==='plant',grandma=family==='grandma',sign=family==='sign';
- $('picker-title').textContent=sign?'Sign':grandma?'Grandma':plant?'Potted plant':'Table';$('variant-label').textContent=sign?'Shape':grandma?'Outfit':plant?'Plant':'Shape';
+ closeSizeMenu();pickerFamily=family;const plant=family==='plant',grandma=family==='grandma',sign=family==='sign',home=family==='home';
+ $('picker-title').textContent=sign?'Sign':grandma?'Grandma':plant?'Potted plant':home?'Home':'Table';$('variant-label').textContent=sign?'Shape':grandma?'Outfit':plant?'Plant':home?'Model':'Shape';
  $('size-label').textContent=sign?'Contents':grandma?'Hair & hat':'Size';
- const variants=sign?Object.entries(SIGN_VARIANTS):grandma?Object.entries(GRANDMA_OUTFITS):plant?Object.entries(PLANTS):[['round','Round'],['square','Square']];
+ const variants=sign?Object.entries(SIGN_VARIANTS):grandma?Object.entries(GRANDMA_OUTFITS):home?Object.entries(HOUSEHOLD_MODELS):plant?Object.entries(PLANTS):[['round','Round'],['square','Square']];
  const sizes=sign?[['text','Icon, text & arrow'],['icon','Icon & arrow']]:grandma?Object.entries(GRANDMA_HAIR):[['1','Small'],['2','Medium'],['3','Large']];
  $('object-variant').replaceChildren(...variants.map(([value,label])=>new Option(label,value)));
  $('object-size').replaceChildren(...sizes.map(([value,label])=>new Option(label,value)));
- const remembered=pickerTypes[family].split('-');$('object-variant').value=remembered[1];$('object-size').value=sign||grandma?remembered[2]:(document.getElementById('add-'+family).dataset.gridSize||'2');$('picker-scale-wrap').hidden=!sign&&!grandma;$('picker-scale').value=document.getElementById('add-'+family).dataset.gridSize||'2';
- $('picker-hint').textContent=sign?'Drag onto a sign pole. Each sign can point in its own direction.':grandma?'Occasionally scatters birdseed. Drag onto a park bench to sit.':plant?'Choose a plant and size.':'Choose a shape and size.';
+ const remembered=pickerTypes[family].split('-');$('object-variant').value=home?pickerTypes[family].replace(/^home-/,''):remembered[1];$('object-size').value=sign||grandma?remembered[2]:(document.getElementById('add-'+family).dataset.gridSize||'2');$('picker-scale-wrap').hidden=!sign&&!grandma;$('picker-scale').value=document.getElementById('add-'+family).dataset.gridSize||'2';
+ $('picker-hint').textContent=sign?'Drag onto a sign pole. Each sign can point in its own direction.':grandma?'Occasionally scatters birdseed. Drag onto a park bench to sit.':home?'Choose a household model and size.':plant?'Choose a plant and size.':'Choose a shape and size.';
  $('object-picker').showModal();
 }
 $('add-sign').addEventListener('click',()=>openPicker('sign'));
 $('add-plant').addEventListener('click',()=>openPicker('plant'));
 $('add-grandma').addEventListener('click',()=>openPicker('grandma'));
 $('add-table').addEventListener('click',()=>openPicker('table'));
+$('add-home').addEventListener('click',()=>openPicker('home'));
 $('picker-close').addEventListener('click',()=>$('object-picker').close());
 $('picker-form').addEventListener('submit',event=>{
- event.preventDefault();const familyOptions=pickerFamily==='grandma'||pickerFamily==='sign',size=+(familyOptions?$('picker-scale').value:$('object-size').value),suffix=familyOptions?$('object-size').value:pickerFamily==='plant'?'medium':'full',type=`${pickerFamily}-${$('object-variant').value}-${suffix}`;document.getElementById('add-'+pickerFamily).dataset.gridSize=size;
+ event.preventDefault();const familyOptions=pickerFamily==='grandma'||pickerFamily==='sign',size=+(familyOptions?$('picker-scale').value:$('object-size').value),suffix=familyOptions?$('object-size').value:pickerFamily==='plant'?'medium':'full',type=pickerFamily==='home'?`home-${$('object-variant').value}`:`${pickerFamily}-${$('object-variant').value}-${suffix}`;document.getElementById('add-'+pickerFamily).dataset.gridSize=size;
  pickerTypes[pickerFamily]=type;const o=addObject(type,null,false,5,null,0,size);if(o){$('object-picker').close();select(o);notify(`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}
  else $('picker-hint').textContent='No clear space here. Close this picker, pan to an open area, or remove a form and try again.';
 });
@@ -350,7 +352,7 @@ function finishToolbarDrag(event,cancel=false){
 }
 function cancelToolbarDrag(){finishToolbarDrag(null,true);}
 toolbar.addEventListener('pointerdown',event=>{
- const button=event.target.closest('button[data-add],#add-plant,#add-table,#add-grandma,#add-sign');
+ const button=event.target.closest('button[data-add],#add-plant,#add-table,#add-grandma,#add-sign,#add-home');
  if(!button||event.button!==0||toolbarDrag||state.drag||signFocus.active)return;
  toolbarDrag={id:event.pointerId,button,type:toolbarType(button),gridSize:+button.dataset.gridSize||2,x:event.clientX,y:event.clientY,started:false,preview:null,placement:null};
  button.setPointerCapture(event.pointerId);
