@@ -50,6 +50,14 @@ const COMPONENTS={
  dresser:[B(1.1,.8,.5,0,.4,0),
   B(1.0,.2,.03,0,.22,.265),B(1.0,.2,.03,0,.45,.265),B(1.0,.2,.03,0,.68,.265),
   B(1.14,.04,.54,0,.82,0)],
+ // Body, mattress, headboard at the foot of the length.
+ bed:[B(1.0,.25,2.1,0,.125,0),B(.94,.18,2.0,0,.34,0),B(1.0,.7,.06,0,.55,-1.02)],
+ // Body slab with a top that overhangs on every side.
+ 'kitchen-counter':[B(.9,.85,.6,0,.425,0),B(.96,.05,.66,0,.875,0)],
+ // Screen slab on a neck and a floor stand.
+ television:[B(1.2,.68,.05,0,.56,0),B(.08,.18,.08,0,.13,0),B(.55,.04,.28,0,.02,0)],
+ // Base plate and shade are cuboids; the pole between them is a cylinder.
+ 'floor-lamp':[B(.3,.03,.3,0,.015,0),C(.015,1.3,0,.68,0),B(.4,.28,.4,0,1.42,0)],
  // Body, door face, handle.
  fridge:[B(.7,1.7,.65,0,.85,0),B(.66,1.64,.03,0,.85,.34),B(.03,.5,.03,.28,1.05,.365)],
  // Body slab and the circular drum door facing forward.
