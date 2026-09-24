@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {estimateBackgroundColor,isolateSubject,isolationUsable,traceContour,simplify,featherMask,normalizeContour} from '../src/photo-object.js';
+import * as THREE from 'three';
+import R from '@dimforge/rapier3d-compat';
+import {estimateBackgroundColor,isolateSubject,isolationUsable,traceContour,simplify,simplifyForForm,normalizeContour,buildPhotoForm,buildCardForm,makePhotoForm,PHOTO_BUDGET,photoDataUrlBudget,sanitizePhotoRecord} from '../src/photo-object.js';
+import {makeForm,LABELS} from '../src/shapes.js';
+import {CATALOG_TYPES} from '../src/catalog-layout.js';
+import {CollisionScene} from '../src/collision.js';
+await R.init();
 
 // Synthetic pixel matrices: RGBA buffers with y growing downward, exactly what
 // getImageData hands the browser shim. The standard fixture is a white 16×16
@@ -18,6 +24,8 @@ function frame(square,{squareColor=[20,20,20],background=[255,255,255],from=4,to
 }
 const subjectPixels=mask=>mask.reduce((count,v)=>count+(v?1:0),0);
 const chebyshev=(a,b)=>Math.max(Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]));
+const CUTOUT_CONTOUR=[[0,0],[1,0],[1,1],[.5,.4],[0,1]]; // square with a notch the hull must cover
+const CUTOUT_RECORD={url:'data:image/png;base64,AAA',shape:'cutout',contour:CUTOUT_CONTOUR,aspect:1.25};
 
 test('background estimate reads the dominant border color',()=>{
  assert.deepEqual(estimateBackgroundColor(frame(true),W,H),{r:255,g:255,b:255});
@@ -76,12 +84,12 @@ test('simplification is deterministic, collapses straight runs and keeps the sha
  assert.deepEqual(simplify([[0,0],[1,1]]),[]);
 });
 
-test('feathered alpha is a one-pixel soft edge on the binary mask',()=>{
- const mask=isolateSubject(frame(true),W,H),soft=featherMask(mask,W,H);
- assert.equal(soft[5*W+5],255); // deep interior stays fully opaque
- assert.equal(soft[0],0); // deep background stays clear
- const edge=soft[4*W+4]; // top-left corner of the subject: 4 of 9 samples inside
- assert.ok(edge>70&&edge<141,`corner edge alpha ${edge}`);
+test('point budget forces coarser simplification deterministically',()=>{
+ const raw=traceContour(isolateSubject(frame(true),W,H),W,H);
+ const capped=simplifyForForm(raw,{maxPoints:8});
+ assert.ok(capped.length<=8,`capped ring kept ${capped.length} points`);
+ assert.deepEqual(capped,simplifyForForm(raw,{maxPoints:8}));
+ assert.deepEqual(simplifyForForm(raw),simplify(raw));
 });
 
 test('contours normalize to 0..1 with y up',()=>{
@@ -94,8 +102,74 @@ test('contours normalize to 0..1 with y up',()=>{
  assert.equal(normalizeContour(contour,0,H),null);
 });
 
+test('photo records sanitize to safe shapes and never throw',()=>{
+ assert.deepEqual(sanitizePhotoRecord(CUTOUT_RECORD),CUTOUT_RECORD);
+ // Scriptable or over-budget URLs drop to null; garbage returns null outright.
+ assert.equal(sanitizePhotoRecord({...CUTOUT_RECORD,url:'data:text/html;base64,PHNjcmlwdD4='}).url,null);
+ assert.equal(sanitizePhotoRecord({...CUTOUT_RECORD,url:'data:image/png;base64,'+'A'.repeat(70000)}).url,null);
+ // A cutout without a usable ring, or with out-of-range points, degrades to the card.
+ assert.equal(sanitizePhotoRecord({...CUTOUT_RECORD,contour:[[0,0],[2,0]]}).shape,'card');
+ assert.equal(sanitizePhotoRecord({...CUTOUT_RECORD,contour:[[0,0],[1,0],[1,2]]}).shape,'card');
+ assert.equal(sanitizePhotoRecord({...CUTOUT_RECORD,shape:'mystery'}).shape,'card');
+ assert.equal(sanitizePhotoRecord('photo'),null);
+ assert.equal(sanitizePhotoRecord(null),null);
+});
+
+test('the data-URL budget is 64 KiB on the stored string',()=>{
+ assert.equal(PHOTO_BUDGET,65536);
+ assert.equal(photoDataUrlBudget('x'.repeat(65536)),true);
+ assert.equal(photoDataUrlBudget('x'.repeat(65537)),false);
+ assert.equal(photoDataUrlBudget(undefined),false);
+});
+
+test('cutout forms extrude the silhouette with a matching convex collider',()=>{
+ const form=buildPhotoForm(CUTOUT_CONTOUR,R,{aspect:1.5});
+ assert.equal(form.parts.length,1);
+ const hull=form.parts[0].shape;
+ assert.ok(Number.isFinite(hull.vertices?.length)&&hull.vertices.length>=12,'hull has no vertices');
+ assert.ok(form.height>1&&form.height<=2.11,`height ${form.height}`);
+ const b=form.geometry.boundingBox;
+ assert.ok((b.max.x-b.min.x)/(b.max.y-b.min.y)>1,`aspect ignored: ${b.max.x-b.min.x} × ${b.max.y-b.min.y}`);
+ // The silhouette is centered on the origin so placement lifts by height/2.
+ assert.ok(Math.abs((b.max.y+b.min.y)/2)<1e-6,'silhouette not y-centered');
+ assert.throws(()=>buildPhotoForm([[0,0],[1,1]],R),/three points/);
+});
+
+test('card forms are thin boxes with one cuboid part',()=>{
+ const form=buildCardForm(1.45,R);
+ assert.equal(form.parts.length,1);
+ assert.deepEqual({...form.parts[0].shape.halfExtents},{x:1.2,y:1.05,z:.03}); // 2.1×1.45 clamps to the 2.4 width cap
+ assert.equal(form.height,2.1);
+ const wide=buildCardForm(4,R); // aspect clamped so cards stay placeable
+ assert.ok(wide.geometry.boundingBox.max.x-wide.geometry.boundingBox.min.x<=2.4+1e-6); // Float32 vertex rounding
+});
+
+test('makePhotoForm degrades unsuitable cutouts to the card without throwing',()=>{
+ const cutout=makePhotoForm(R,CUTOUT_RECORD);
+ assert.equal(cutout.photo.shape,'cutout');
+ const card=makePhotoForm(R,{...CUTOUT_RECORD,contour:null});
+ assert.equal(card.photo.shape,'card');
+ assert.equal(card.geometry.type,'BoxGeometry');
+ const plain=makePhotoForm(R,undefined);
+ assert.equal(plain.photo,null); // no photo record at all → plain paper card
+});
+
+test('photo objects place through the shared collision and catalog paths',()=>{
+ assert.equal(LABELS['photo-object'],'Photo');
+ assert.ok(!CATALOG_TYPES.includes('photo-object'),'photo objects are user-created, never catalog templates');
+ const form=makeForm('photo-object',R,{photo:CUTOUT_RECORD});
+ assert.ok(form.parts.length>=1&&form.photo.shape==='cutout');
+ const collision=new CollisionScene(R),subject={parts:form.parts,height:form.height,geometry:form.geometry,mesh:new THREE.Mesh(form.geometry)};
+ // Open floor returns the mesh-center y (household convention).
+ assert.ok(Math.abs(collision.supportY(subject,2,2)-form.height/2)<1e-9,`supportY ${collision.supportY(subject,2,2)}`);
+ assert.equal(collision.canPlace(subject,new THREE.Vector3(2,form.height/2,2)),true);
+ // No stacking heads: nothing may be stacked onto a photo cutout via profiles,
+ // though resting a form on its top surface stays a legal placement.
+ assert.deepEqual(form.stacking.heads,[]);
+});
+
 test('the photo pipeline makes no network calls',()=>{
- for(const file of ['photo-object.js']){
+ for(const file of ['photo-object.js','photo-upload.js']){
   const source=readFileSync(fileURLToPath(new URL(`../src/${file}`,import.meta.url)),'utf8');
   for(const pattern of ['fetch(','XMLHttpRequest','WebSocket','sendBeacon','importScripts']){
    assert.ok(!source.includes(pattern),`${file} references ${pattern}`);

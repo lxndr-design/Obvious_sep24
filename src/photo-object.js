@@ -1,9 +1,33 @@
+import * as THREE from 'three';
+
 // Photo-to-object pipeline, pure logic only — every function here runs in
 // node:test with synthetic pixel matrices. The browser glue (file input,
 // canvases, textures) lives in photo-upload.js; the form builders consume
 // contours, never images. Coordinates: images are sampled with y growing
 // downward (canvas convention); contours are normalized to 0..1 with y up
 // before they reach the geometry builders.
+
+// A persisted photo may never smuggle in anything scriptable: only raster
+// data URLs inside the budget survive sanitization.
+export const PHOTO_BUDGET=65536;
+const PHOTO_DATA_URL=/^data:image\/(?:png|jpeg|webp);base64,/;
+
+// 64 KiB on the data-URL string itself — the bytes actually stored in spaces,
+// the clipboard and localStorage.
+export function photoDataUrlBudget(url,limit=PHOTO_BUDGET){return typeof url==='string'&&url.length<=limit;}
+
+// Untrusted photo records (loaded spaces, pasted clipboards, the model API)
+// sanitize to a safe shape or to null — they never throw, so a bad photo
+// degrades to the paper card instead of failing the whole space.
+export function sanitizePhotoRecord(photo,budget=PHOTO_BUDGET){
+ if(!photo||typeof photo!=='object'||Array.isArray(photo))return null;
+ const url=photoDataUrlBudget(photo.url,budget)&&PHOTO_DATA_URL.test(photo.url)?photo.url:null;
+ const aspect=Number.isFinite(photo.aspect)&&photo.aspect>=.2&&photo.aspect<=5?photo.aspect:1.45;
+ let contour=null;
+ if(Array.isArray(photo.contour)&&photo.contour.length>=3&&photo.contour.every(point=>Array.isArray(point)&&point.length===2&&Number.isFinite(point[0])&&Number.isFinite(point[1])&&point[0]>=0&&point[0]<=1&&point[1]>=0&&point[1]<=1))contour=photo.contour;
+ // 'cutout' without a usable contour degrades to the card; unknown shapes too.
+ return {url,shape:photo.shape==='cutout'&&contour?'cutout':'card',contour:photo.shape==='cutout'?contour:null,aspect};
+}
 
 // Dominant border color: quantize the 1 px frame into 4-bit-per-channel
 // buckets and average the largest bucket. Uniform backgrounds win outright;
@@ -140,25 +164,68 @@ export function simplify(contour,epsilon=.012){
  return result.length>=3?result:contour.slice();
 }
 
-// 1 px box blur of the binary mask — the feathered alpha behind the photo
-// texture. The binary mask keeps driving the geometry; this only softens the
-// cutout edge by a pixel.
-export function featherMask(mask,w,h){
- const soft=new Uint8ClampedArray(mask.length);
- for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-  let sum=0,count=0;
-  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-   const nx=x+dx,ny=y+dy;
-   if(nx<0||ny<0||nx>=w||ny>=h)continue;
-   sum+=mask[ny*w+nx];count++;
-  }
-  soft[y*w+x]=Math.round(sum/count);
- }
- return soft;
-}
-
 // Pixel-space contour → normalized 0..1 with y up (the geometry convention).
+// x and y divide by different dims; buildPhotoForm restores proportions via
+// the photo's aspect.
 export function normalizeContour(contour,w,h){
  if(!w||!h||!Array.isArray(contour)||contour.length<3)return null;
  return contour.map(([x,y])=>[x/w,1-y/h]);
+}
+
+// Upload-path helper: cap geometry/collider complexity by doubling the
+// simplification epsilon until the ring fits. Deterministic.
+export function simplifyForForm(contour,{epsilon=.012,maxPoints=90}={}){
+ let simplified=simplify(contour,epsilon),factor=epsilon;
+ while(simplified.length>maxPoints&&factor<1){factor*=2;simplified=simplify(contour,factor);}
+ return simplified;
+}
+
+// The cutout: the silhouette extruded with the photo mapped on front and back
+// (planes attached by the upload shim), one convex hull collider from the
+// extrusion's own vertices so the collision shape matches the drawn piece.
+// Contours arrive in image-normalized coordinates, so `aspect` (photo width /
+// height) restores true proportions before `height` bounds the longest planar
+// dimension — the household convention.
+export function buildPhotoForm(contour,R,{height=2.1,aspect=1,depthRatio=.12,bevel=.012}={}){
+ if(!Array.isArray(contour)||contour.length<3)throw Error('A photo silhouette needs at least three points.');
+ const planar=contour.map(([x,y])=>[x*aspect,y]);
+ let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+ for(const [x,y] of planar){
+  if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;
+ }
+ const w=Math.max(maxX-minX,1e-6),h=Math.max(maxY-minY,1e-6),scale=height/Math.max(w,h),depth=depthRatio*h*scale;
+ // Center on the origin (household convention): placement lifts by height/2.
+ const points=planar.map(([x,y])=>new THREE.Vector2((x-minX)*scale-w*scale/2,(y-minY)*scale-h*scale/2));
+ const geometry=new THREE.ExtrudeGeometry(new THREE.Shape(points),{depth,bevelEnabled:true,bevelThickness:bevel,bevelSize:bevel,bevelSegments:1,curveSegments:1});
+ geometry.translate(0,0,-depth/2);
+ geometry.computeBoundingBox();
+ // Recentre fully (the household convention) — the bevel's outward expansion
+ // is not symmetric, and placement lifts by height/2.
+ const center=new THREE.Vector3();
+ geometry.boundingBox.getCenter(center);
+ geometry.translate(-center.x,-center.y,-center.z);
+ geometry.computeBoundingBox();
+ const parts=[{shape:new R.ConvexPolyhedron(new Float32Array(geometry.attributes.position.array)),offset:new THREE.Vector3()}];
+ return {geometry,parts,height:geometry.boundingBox.max.y-geometry.boundingBox.min.y};
+}
+
+// The fallback: a paper card carrying the photo, or plain paper when no
+// usable photo URL survived. Still an honest placeable object.
+export function buildCardForm(aspect=1.45,R,{height=2.1,thickness=.06}={}){
+ const w=Math.min(Math.max(height*aspect,.5),2.4);
+ const geometry=new THREE.BoxGeometry(w,height,thickness);
+ geometry.computeBoundingBox();
+ return {geometry,parts:[{shape:new R.Cuboid(w/2,height/2,thickness/2),offset:new THREE.Vector3()}],height};
+}
+
+// makeForm adapter for type 'photo-object'. Records loaded from spaces or the
+// clipboard are sanitized first; an unusable cutout degrades to the card, and
+// a missing photo degrades to plain paper — the pipeline never dead-ends.
+export function makePhotoForm(R,photo){
+ const record=sanitizePhotoRecord(photo);
+ if(record?.shape==='cutout'){
+  try{return {...buildPhotoForm(record.contour,R,{aspect:record.aspect}),photo:record};}
+  catch{/* fall through to the card */}
+ }
+ return {...buildCardForm(record?record.aspect:1.45,R),photo:record};
 }

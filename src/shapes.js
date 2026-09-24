@@ -9,7 +9,8 @@ import {makeHedge} from './hedges.js';
 import {stackingProfile} from './stacking.js';
 import {HOUSEHOLD_LABELS,makeHousehold} from './household.js';
 import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
-export const LABELS={letter:'Letter',board:'Board',box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...HOUSEHOLD_LABELS,...FURNISHING_LABELS,...SIGN_LABELS};
+import {makePhotoForm} from './photo-object.js';
+export const LABELS={letter:'Letter',board:'Board',box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...HOUSEHOLD_LABELS,...FURNISHING_LABELS,...SIGN_LABELS,'photo-object':'Photo'};
 export function makeForm(type,R,options={}){
  if(type==='letter'||type==='board'){const form=type==='letter'?makeLetter(R,options.letter??undefined):makeBoard(R,options.board??undefined);return {...form,stacking:stackingProfile(type,form)};}
  if(Object.hasOwn(SIGN_LABELS,type)){const form=makeSign(type,R);return {...form,stacking:stackingProfile(type,form)};}
@@ -18,6 +19,7 @@ export function makeForm(type,R,options={}){
  if(type==='hedge')return makeHedge(R);
  if(Object.hasOwn(HOUSEHOLD_LABELS,type)){const form=makeHousehold(type,R);return {...form,stacking:stackingProfile(type,form)};}
  if(Object.hasOwn(FURNISHING_LABELS,type)){const form=makeFurnishing(type,R);return {...form,stacking:stackingProfile(type,form)};}
+ if(type==='photo-object'){const form=makePhotoForm(R,options.photo);return {...form,stacking:stackingProfile(type,form)};}
  let geometry,parts=[],height;
  if(type==='box'){height=1.35;geometry=new THREE.BoxGeometry(1.35,height,1.35);parts=[{shape:new R.Cuboid(.675,.675,.675)}];}
  else if(type==='sphere'){height=1.5;geometry=new THREE.SphereGeometry(.75,48,32);parts=[{shape:new R.Ball(.75)}];}
