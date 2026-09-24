@@ -72,7 +72,7 @@ export class BirdColony {
     // Plan lazily on the first arriving tick: seed legs keep the caution-paced
     // approach duration the old lerp path used, and spawn-time caution is
     // assigned by then (caution ??= runs before state dispatch).
-    if(!b.flight)this.beginFlight(b,b.target,b.habitat==='seed'?{duration:2.3+(b.caution??0)*1.8}:{exclude:b.siteObject??null});
+    if(!b.flight)this.beginFlight(b,b.target,b.habitat==='seed'?{duration:2.3+(b.caution??0)*1.8,approach:true}:{exclude:b.siteObject??null,approach:true});
     const landed=steerFlight(b,dt);
     b.opacity=b.residentArrival?1:smooth((b.flight?.u??1)/.8);b.peck=0;
     if(landed){b.state=b.habitat==='bath'?'perching':b.habitat==='seed'?'feeding':b.habitat==='stick'?'collecting':'foraging';b.age=0;b.walkTarget=b.target.clone();b.nextWalk=.5*birdHopTempo(b);b.lastPeck=-1;b.flight=null;}

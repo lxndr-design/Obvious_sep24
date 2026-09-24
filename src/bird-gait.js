@@ -1,4 +1,14 @@
 export const birdSpecies=bird=>bird.species??((bird.id-1)%5===3?'pigeon':'songbird');
+// Landing alignment for a steered arrival leg: across the final stretch the
+// approach eases down (returns a speed multiplier in [.3,1]) so touch-down is
+// planted rather than skidded. Pure math; the flight stepper applies it as a
+// multiplier on speed x dt, so the velocity bound still holds and the leg
+// still completes at u=1.
+export function landingEase(u,reach=.28){
+ if(u>=1||reach<=0)return 1;
+ const t=Math.min(1,Math.max(0,(u-(1-reach))/reach));
+ return 1-.7*t*t*(3-2*t);
+}
 export function updateBirdGait(bird,previous,dt){
  const distance=Math.hypot(bird.position.x-previous.x,bird.position.z-previous.z);
  const walking=birdSpecies(bird)==='pigeon'&&['foraging','feeding'].includes(bird.state)&&distance>1e-5;

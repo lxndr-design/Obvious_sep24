@@ -9,6 +9,7 @@
 // stay deterministic.
 import * as THREE from 'three';
 import {birdHopTempo} from './bird-traits.js';
+import {landingEase} from './bird-gait.js';
 
 export const CRUISE_SPEED=3.2; // m/s for a scale-1 bird
 export const TURN_RATE=2.8;    // rad/s the heading may swing per second
@@ -105,7 +106,7 @@ function repairPath(path,avoidance,exclude,rise){
 // short-lived departure legs always finish inside the colony's cleanup window;
 // duration fixes the leg length in time exactly — the caution-paced seed
 // approach keeps its old lerp timing under the new velocity-bounded steering.
-export function planFlight(bird,target,{avoidance=null,exclude=null,rise=.45,minDuration=0,duration=0}={}){
+export function planFlight(bird,target,{avoidance=null,exclude=null,rise=.45,minDuration=0,duration=0,approach=false}={}){
  const p0=bird.position.clone(),p2=target.clone();
  const heading=_v.set(Math.cos(bird.yaw),0,-Math.sin(bird.yaw));
  if(heading.lengthSq()<1e-8)heading.set(1,0,0);
@@ -117,6 +118,7 @@ export function planFlight(bird,target,{avoidance=null,exclude=null,rise=.45,min
  tangent(path,1,_w);
  path.length=arclength(path.p0,path.p1,path.p2);
  path.speed=duration>0?path.length/duration:Math.max(flightSpeed(bird),minDuration>0?path.length/minDuration:0);
+ path.approach=approach;
  path.landYaw=_w.lengthSq()>1e-8?Math.atan2(-_w.z,_w.x):bird.yaw;
  return path;
 }
@@ -129,7 +131,7 @@ export function steerFlight(bird,dt){
  const f=bird.flight;
  if(!f)return true;
  if(f.done||f.length<1e-6){bird.position.copy(f.p2);bird.yaw=f.landYaw;f.done=true;return true;}
- const distance=Math.min((1-f.u)*f.length,f.speed*dt);
+ const distance=Math.min((1-f.u)*f.length,f.speed*dt*(f.approach?landingEase(f.u):1));
  f.u=Math.min(1,f.u+distance/f.length);
  bezier(f.p0,f.p1,f.p2,f.u,_v);
  const stretch=_v.distanceTo(bird.position);
