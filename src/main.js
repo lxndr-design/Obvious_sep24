@@ -503,7 +503,7 @@ toolbar.addEventListener('lostpointercapture',event=>{if(toolbarDrag?.id===event
 // its own progress. No drag-preview: a photo needs the file dialog first.
 const photoFile=document.createElement('input');photoFile.type='file';photoFile.accept='image/*';photoFile.hidden=true;photoFile.setAttribute('aria-label','Choose a photo to place');document.body.append(photoFile);
 $('add-photo').addEventListener('click',()=>{if(!signFocus.active)photoFile.click();});
-photoFile.addEventListener('change',async()=>{const file=photoFile.files?.[0];photoFile.value='';if(file)await handlePhotoFile(file,RAPIER,addObject,notify);});
+photoFile.addEventListener('change',async()=>{const file=photoFile.files?.[0];photoFile.value='';if(!file)return;const o=await handlePhotoFile(file,RAPIER,addObject,notify);if(o){select(o);canvas.focus({preventScroll:true});}});
 window.addEventListener('blur',cancelToolbarDrag);
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&toolbarDrag){cancelToolbarDrag();event.preventDefault();event.stopPropagation();}},true);
 let boardControlsEnabled=false;
