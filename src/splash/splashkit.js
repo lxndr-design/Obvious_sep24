@@ -99,6 +99,13 @@ export function createSplashKit(canvas,initial={}){
    if(ids.length)sim.send({type:'despawn',ids});
    return ids.length;
   }
+  if(Array.isArray(handleOrAll)){
+   // Batch form: the editor's regen replaces whole arrangements — one
+   // protocol message per diff, not one per body.
+   const ids=handleOrAll.map(h=>typeof h==='object'?h.id:h).filter(id=>field.release(id));
+   if(ids.length)sim.send({type:'despawn',ids});
+   return ids.length;
+  }
   const id=typeof handleOrAll==='object'?handleOrAll.id:handleOrAll;
   if(!field.release(id))return false;
   sim.send({type:'despawn',ids:[id]});
@@ -158,6 +165,9 @@ export function createSplashKit(canvas,initial={}){
   // Exposed for the sim slice (worker attach + pose feeding) and tests; the
   // editor panel never needs them.
   sim,field,noise,
+  // Screen→world projection for the editor's drop placement (and later the
+  // pointer mapping): the engine owns the camera, the kit just surfaces it.
+  camera:engine.camera,
   spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,fractalBump,
   applyPoses:frame=>field.applyPoses(frame),
   stats,dispose,
