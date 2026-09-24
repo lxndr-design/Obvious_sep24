@@ -4,7 +4,7 @@ import {CATALOG_TYPES,catalogLayout,catalogName} from '../src/catalog-layout.js'
 import {HOUSEHOLD_LABELS} from '../src/household.js';
 import {LABELS} from '../src/shapes.js';
 test('catalog has all canonical designs at each size without duplicate legacy sizes',()=>{
- const types=Object.keys(LABELS).filter(t=>t!=='grandma'&&!/^plant-.*-(small|large)$/.test(t)&&!/^table-.*-half$/.test(t));
+ const types=Object.keys(LABELS).filter(t=>t!=='grandma'&&t!=='photo-object'&&!/^plant-.*-(small|large)$/.test(t)&&!/^table-.*-half$/.test(t)); // photo objects are user-created, never catalog templates
  assert.deepEqual(new Set(CATALOG_TYPES),new Set([...types,'pool']));
  const cells=catalogLayout();assert.equal(cells.length,CATALOG_TYPES.length*3);
  for(const type of CATALOG_TYPES)assert.deepEqual(cells.filter(c=>c.type===type).map(c=>c.size),[1,2,3]);

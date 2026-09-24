@@ -5,6 +5,7 @@ import {actionURL,remapActions} from './message-actions.js';
 import {DragGrid} from './drag-grid.js';
 import {makeSizedForm,installSizeMenu,objectSizeLabel} from './object-size.js';
 import {objectRecord,validateSpace,installSpaces} from './spaces.js';
+import {handlePhotoFile,decoratePhoto,disposePhoto} from './photo-upload.js';
 import {setGrandmaPose} from './grandma.js';
 import {bindDragPointer} from './drag-pointer.js';
 import {installTrackpadPan} from './camera-pan.js';
@@ -223,7 +224,7 @@ function addHole(position=null,size=2){
 }
 function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o)))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(o.properties?.locked)return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
-function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize,record??{});const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];if(o.board)o.properties.messages=[{text:o.board.title,choices:[],action:{type:'board',targetId:o.id,label:'Open board'}}];mesh.userData.object=o;
+function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null,photo=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize,photo?{photo}:(record??{}));const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];if(o.board)o.properties.messages=[{text:o.board.title,choices:[],action:{type:'board',targetId:o.id,label:'Open board'}}];mesh.userData.object=o;
  if(record?.seated)setGrandmaPose(o,true,physics);
  if(isSign(o)&&placement)applySignPlacement(o,placement);
  if(o.grandmaForms&&placement)applyGrandmaPlacement(o,placement,physics);
@@ -231,7 +232,7 @@ function addObject(type,position=null,hanging=false,cableLength=5,placement=null
  if(record){mesh.position.fromArray(record.position);mesh.quaternion.fromArray(record.rotation).normalize();o.anchor=record.anchor?new THREE.Vector3().fromArray(record.anchor):null;o.properties={...properties(),...structuredClone(record.properties)};if(o.sign&&record.sign)o.sign={...o.sign,...record.sign};o.signSlot=record.signSlot;}
  else if(position){mesh.position.set(position[0],y,position[1]);if(!hanging){mesh.position.y=placement?.position.y??physics.supportY(o,position[0],position[1]);o.support=placement?.support??null;}if(!physics.canPlace(o,mesh.position)){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();return null;}}
  else {let found=false;const centerX=Math.round(controls.target.x/GRID)*GRID,centerZ=Math.round(controls.target.z/GRID)*GRID;for(let z=centerZ+3.5;z>=centerZ-4.5&&!found;z-=GRID)for(let x=centerX-5.5;x<=centerX+5.5&&!found;x+=GRID){mesh.position.set(x,y,z);mesh.position.y=hanging?y:physics.supportY(o,x,z);if(physics.canPlace(o,mesh.position))found=true;}if(!found){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();notify('No clear floor space for this form.');return null;}}
- decorateSign(o);decorateBoard(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
+ decorateSign(o);decorateBoard(o);decoratePhoto(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
 let noticeTimer;
 function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
 function select(o){if(presentationOnly)o=null;const changed=state.selected!==o;state.selected=o;
@@ -252,7 +253,7 @@ function setHang(o,hanging,length=o.cableLength){
  pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o,force=false){
- if(!o||!force&&!canManipulate(o,stacks.members(o)))return;if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
+ if(!o||!force&&!canManipulate(o,stacks.members(o)))return;if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);disposePhoto(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
@@ -497,6 +498,12 @@ window.addEventListener('pointermove',event=>{
 window.addEventListener('pointerup',event=>finishToolbarDrag(event),true);
 window.addEventListener('pointercancel',event=>finishToolbarDrag(event,true),true);
 toolbar.addEventListener('lostpointercapture',event=>{if(toolbarDrag?.id===event.pointerId)cancelToolbarDrag();});
+// Photo to object: the toolbar button opens a hidden image input (the spaces
+// import pattern); the pipeline places the object near the view and reports
+// its own progress. No drag-preview: a photo needs the file dialog first.
+const photoFile=document.createElement('input');photoFile.type='file';photoFile.accept='image/*';photoFile.hidden=true;photoFile.setAttribute('aria-label','Choose a photo to place');document.body.append(photoFile);
+$('add-photo').addEventListener('click',()=>{if(!signFocus.active)photoFile.click();});
+photoFile.addEventListener('change',async()=>{const file=photoFile.files?.[0];photoFile.value='';if(!file)return;const o=await handlePhotoFile(file,RAPIER,addObject,notify);if(o){select(o);canvas.focus({preventScroll:true});}});
 window.addEventListener('blur',cancelToolbarDrag);
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&toolbarDrag){cancelToolbarDrag();event.preventDefault();event.stopPropagation();}},true);
 let boardControlsEnabled=false;
@@ -513,7 +520,7 @@ function editForm(o,type,config){
  if(!o||!canManipulate(o)||state.objects.some(child=>child.support===o)){notify('Move anything resting on this object before changing its shape.');return false;}
  try{const form=makeSizedForm(type,RAPIER,o.gridSize??2,config);
   if(!replaceForm(o,form,type,physics)){notify('This shape needs more room. Move it clear first.');return false;}
-  disposeSign(o);disposeBoard(o);decorateSign(o);decorateBoard(o);pendulums.rebuild(o);presentation.clear(o);updateCable(o);renderer.shadowMap.needsUpdate=true;select(o);return true;
+  disposeSign(o);disposeBoard(o);decorateSign(o);decorateBoard(o);disposePhoto(o);decoratePhoto(o);pendulums.rebuild(o);presentation.clear(o);updateCable(o);renderer.shadowMap.needsUpdate=true;select(o);return true;
  }catch(error){notify(error.message);return false;}
 }
 const signInspector=new SignInspector($('selection-controls'),o=>{if(o===state.selected)rotateSelected();},(o,variant,mode)=>{
