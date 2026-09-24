@@ -74,8 +74,10 @@ export async function handlePhotoFile(file,R,add,notify){
  const contour=usable?simplifyForForm(usable):null;
  const shape=contour&&contour.length>=3?'cutout':'card';
  const photo={url:budgetedDataUrl(canvas),shape,contour:shape==='cutout'?contour:null,aspect:w/h};
- const object=add('photo-object',null,false,5,null,0,null,{photo});
- if(!object){notify?.('No clear space near the view for a photo object.');return null;}
+ // addObject auto-seeks clear floor near the view and reports its own outcome
+ // (scene full / no clear space) — no second notice here.
+ const object=add('photo-object',null,false,5,null,0,2,null,{photo});
+ if(!object)return null;
  notify?.(shape==='cutout'?'Placed your photo, cut out as a placeable object.':'The subject was hard to isolate, so the photo landed as a paper card.');
  return object;
 }

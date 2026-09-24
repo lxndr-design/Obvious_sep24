@@ -8,6 +8,8 @@ import {estimateBackgroundColor,isolateSubject,isolationUsable,traceContour,simp
 import {makeForm,LABELS} from '../src/shapes.js';
 import {CATALOG_TYPES} from '../src/catalog-layout.js';
 import {CollisionScene} from '../src/collision.js';
+import {objectRecord,withoutPhotoData} from '../src/spaces.js';
+import {properties} from '../src/object-properties.js';
 await R.init();
 
 // Synthetic pixel matrices: RGBA buffers with y growing downward, exactly what
@@ -166,6 +168,27 @@ test('photo objects place through the shared collision and catalog paths',()=>{
  // No stacking heads: nothing may be stacked onto a photo cutout via profiles,
  // though resting a form on its top surface stays a legal placement.
  assert.deepEqual(form.stacking.heads,[]);
+});
+
+test('photo objects round-trip through space records',()=>{
+ const form=makeForm('photo-object',R,{photo:CUTOUT_RECORD});
+ const mesh=new THREE.Mesh(form.geometry);mesh.position.set(2,form.height/2,2);
+ const record=objectRecord({...form,type:'photo-object',id:7,mesh,properties:properties(),hanging:false,cableLength:5});
+ assert.equal(record.photo.shape,'cutout');
+ assert.ok(record.photo.url.startsWith('data:image/png;base64,'));
+ // The load path rebuilds the cutout from the record alone.
+ const reloaded=makeForm('photo-object',R,record);
+ assert.equal(reloaded.photo.shape,'cutout');
+ assert.ok(reloaded.parts[0].shape instanceof R.ConvexPolyhedron);
+ // A record whose photo url was stripped (presentation link) still rebuilds
+ // the cutout silhouette — paper-textured, no error, never a dead object.
+ const light=withoutPhotoData({version:1,objects:[record]});
+ assert.equal(light.objects[0].photo.url,null);
+ assert.equal(light.objects[0].photo.shape,'cutout');
+ const plain=makeForm('photo-object',R,light.objects[0]);
+ assert.equal(plain.photo.shape,'cutout');
+ assert.equal(plain.photo.url,null);
+ assert.ok(plain.parts[0].shape instanceof R.ConvexPolyhedron);
 });
 
 test('the photo pipeline makes no network calls',()=>{
