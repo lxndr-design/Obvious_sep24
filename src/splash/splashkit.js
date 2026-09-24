@@ -3,6 +3,11 @@ import {InstanceField} from './core/instance-field.js';
 import {BannerConfig} from './banner-config.js';
 import {createSimChannel} from './sim/sim-channel.js';
 import {sineSeries,layoutPositions,applyJitter} from './gen/series.js';
+import {createNoiseChannel} from './gen/noise-channel.js';
+import {finishDisplaced} from './gen/bump-geometry.js';
+import {resolveBumpParams} from './gen/bump3d.js';
+import {PRESETS,presetGeometry} from './presets.js';
+import {createMaterial,setBumpMaterialParams} from './materials/index.js';
 
 // SplashKit — the callable layer over three.js. DOM-free: the entry wires the
 // canvas, input and editor; everything here is headless-testable. Physics
@@ -13,8 +18,19 @@ export function createSplashKit(canvas,initial={}){
  const engine=createEngine({canvas,stage:initial.stage,rendererFactory:initial.rendererFactory,pixelRatioCap:initial.pixelRatioCap});
  // The sim worker feeds the field directly: transferred pose buffers arrive,
  // get wrapped in views, and land in the instance-field read path every frame.
+ // The callback only fires once poses return from the worker, so referencing
+ // `field` before its declaration below is safe.
  const sim=createSimChannel({onPoses:frame=>field.applyPoses(frame)});
- const field=new InstanceField(engine.scene,{capacity:initial.capacity});
+ const noise=createNoiseChannel(initial.noiseWorkerFactory?{workerFactory:initial.noiseWorkerFactory}:{});
+ // Per-preset bump field config: the 'bump' material buckets for a preset must
+ // shade the exact field its displaced geometry was cut with.
+ const bumpConfigs=new Map();
+ const field=new InstanceField(engine.scene,{
+  capacity:initial.capacity,
+  createMaterial:(kind,preset)=>kind==='bump'
+   ?createMaterial('bump',bumpConfigs.get(preset))
+   :createMaterial(kind),
+ });
  const banner=new BannerConfig(initial.banner);
 
  function describe(handle){
@@ -96,6 +112,29 @@ export function createSplashKit(canvas,initial={}){
   sim.send({type:'impulse',kind:'radial',p:point,strength,radius});
  }
 
+ // True-3D fractal bump for a preset: displaces a geometry clone through the
+ // noise worker (off-thread — the render loop never waits on fBm math), then
+ // registers it on the field so every bucket for that preset renders the
+ // displaced silhouette. 'bump' material buckets for the preset are re-pinned
+ // to the same field config, so fragment micro-shading always agrees with the
+ // geometry. Resolves with {transport, vertices, seed}.
+ async function fractalBump(name,params={}){
+  if(!PRESETS[name])throw new Error(`Unknown preset: ${name}`);
+  const cfg=resolveBumpParams(params);
+  bumpConfigs.set(name,cfg);
+  const base=presetGeometry(name);
+  // The channel transfers buffer ownership — slice() so the shared preset
+  // cache is never detached.
+  const {positions,transport}=await noise.generate({
+   positions:base.attributes.position.array.slice(),params:cfg,
+  });
+  field.registerGeometry(name,finishDisplaced(base,positions,cfg));
+  for(const bucket of field.buckets.values()){
+   if(bucket.preset===name&&bucket.material==='bump')setBumpMaterialParams(bucket.mesh.material,cfg);
+  }
+  return{transport,vertices:positions.length/3,seed:cfg.seed};
+ }
+
  function stats(){
   return{
    fps:Number.isFinite(engine.fps)?Math.round(engine.fps):null,
@@ -103,10 +142,12 @@ export function createSplashKit(canvas,initial={}){
    instances:field.used,
    batches:field.bucketCount,
    queued:sim.pending(),
+   bumpTransport:noise.transport(),
   };
  }
 
  function dispose(){
+  noise.dispose();
   sim.dispose();
   field.dispose();
   engine.dispose();
@@ -116,8 +157,8 @@ export function createSplashKit(canvas,initial={}){
   banner,
   // Exposed for the sim slice (worker attach + pose feeding) and tests; the
   // editor panel never needs them.
-  sim,field,
-  spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,
+  sim,field,noise,
+  spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,fractalBump,
   applyPoses:frame=>field.applyPoses(frame),
   stats,dispose,
  };

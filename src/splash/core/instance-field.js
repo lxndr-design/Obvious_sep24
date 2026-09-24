@@ -10,9 +10,15 @@ import {createMaterial} from '../materials/index.js';
 const INITIAL_CAPACITY=256;
 
 export class InstanceField{
- constructor(scene,{capacity=24000}={}){
+ constructor(scene,{capacity=24000,createMaterial:materialFactory}={}){
   this.scene=scene;
   this.capacity=capacity;
+  // Injectable so kit.fractalBump can hand 'bump' buckets their preset's noise
+  // params; default defers to the registry. Signature: (kind, preset) => material.
+  this.materialFactory=materialFactory??((kind)=>createMaterial(kind));
+  // Preset → displaced geometry (kit.fractalBump). Overrides are field-owned
+  // clones — the shared preset cache is never mutated or disposed here.
+  this.geometryOverrides=new Map();
   this.buckets=new Map();
   this.handles=new Map();
   this.nextId=1;
@@ -140,9 +146,24 @@ export class InstanceField{
   }
  }
 
+ // Replaces the geometry a preset renders with (kit.fractalBump): future
+ // buckets get it immediately, live buckets swap in place — instanceMatrix
+ // and instanceColor live on the mesh, so pooled slots survive the swap.
+ registerGeometry(name,geometry){
+  if(!PRESETS[name])throw new Error(`Unknown preset: ${name}`);
+  if(!(geometry instanceof THREE.BufferGeometry))throw new TypeError('registerGeometry expects a BufferGeometry');
+  const previous=this.geometryOverrides.get(name);
+  if(previous&&previous!==geometry)previous.dispose(); // never the shared preset cache
+  this.geometryOverrides.set(name,geometry);
+  for(const bucket of this.buckets.values()){
+   if(bucket.preset===name)bucket.mesh.geometry=geometry;
+  }
+ }
+
  createBucket(name,material,key){
   const capacity=Math.min(INITIAL_CAPACITY,this.capacity);
-  const mesh=new THREE.InstancedMesh(presetGeometry(name),createMaterial(material),capacity);
+  const geometry=this.geometryOverrides.get(name)??presetGeometry(name);
+  const mesh=new THREE.InstancedMesh(geometry,this.materialFactory(material,name),capacity);
   mesh.frustumCulled=false; // instances span the banner; per-geometry culling would pop batches
   mesh.count=0;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -174,9 +195,11 @@ export class InstanceField{
   this.disposed=true;
   for(const bucket of this.buckets.values()){
    this.scene.remove(bucket.mesh);
-   bucket.mesh.material.dispose(); // created per bucket; geometry stays in the preset cache
+   bucket.mesh.material.dispose(); // created per bucket; shared preset geometry stays cached
    bucket.mesh.dispose();
   }
+  for(const geometry of this.geometryOverrides.values())geometry.dispose(); // field-owned displaced clones
+  this.geometryOverrides.clear();
   this.buckets.clear();
   this.handles.clear();
   this.used=0;
