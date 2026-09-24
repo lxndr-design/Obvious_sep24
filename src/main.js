@@ -146,7 +146,6 @@ function despawnEntity(id){
 }
 function despawnSelf(){if(selfEntity)despawnEntity(room.identity.id);}
 function onRoomEvent(event){
- governance.onRoomEvent(event);
  switch(event.type){
   case 'welcome':
    // The server may have assigned Player-####; adopt and persist it so the
@@ -173,6 +172,9 @@ function onRoomEvent(event){
   case 'error': if(event.code==='INVALID'||event.code==='FORBIDDEN')boardSync.rejected();notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
   case 'left': despawnSelf();updatePlayerBadge();notify('You left the board');break;
  }
+ // The console renders after the switch so role and name adoption above are
+ // already applied — a self roleChange must not re-render with a stale role.
+ governance.onRoomEvent(event);
 }
 // ---- shared board plumbing -------------------------------------------------
 function netObjects(){return [...state.objects,...state.holes];}
