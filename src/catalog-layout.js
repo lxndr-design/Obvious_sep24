@@ -1,10 +1,12 @@
 import {LABELS} from './shapes.js';
+import {HOUSEHOLD_LABELS} from './household.js';
 
 // Old size-specific type names remain loadable, but are not separate designs.
 export const CATALOG_TYPES=[
  'letter','board','box','sphere','cylinder','arch','pebble','pool','hedge','stick',
  'bench','birdbath','fountain','table-round-full','table-square-full',
  'plant-snake-medium','plant-rubber-medium','plant-succulent-medium',
+ ...Object.keys(HOUSEHOLD_LABELS),
  ...Object.keys(LABELS).filter(type=>type.startsWith('grandma-')),
  ...Object.keys(LABELS).filter(type=>type.startsWith('sign-')),
 ];
