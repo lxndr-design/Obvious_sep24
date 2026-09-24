@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateMessage,POINTER_MODES,POSITION_STRIDE,QUATERNION_STRIDE} from '../src/splash/sim/protocol.js';
+import {validateMessage,POINTER_MODES,BEHAVIORS,POSITION_STRIDE,QUATERNION_STRIDE} from '../src/splash/sim/protocol.js';
 
 const BODY={id:1,preset:'blob',r:1,p:[0,0,0]};
+
+function poseFrame(count){
+ return{
+  type:'poses',frame:7,count,
+  positions:new ArrayBuffer(count*POSITION_STRIDE*4),
+  quaternions:new ArrayBuffer(count*QUATERNION_STRIDE*4),
+  sleep:new Uint8Array(count),
+  ids:new Uint32Array(count),
+ };
+}
 
 test('valid main->sim messages pass validation',()=>{
  validateMessage({type:'init',bodies:[BODY],config:{gravity:[0,-9.81,0]}});
@@ -12,28 +22,30 @@ test('valid main->sim messages pass validation',()=>{
  for(const mode of POINTER_MODES)validateMessage({type:'pointer',mode,p:[0,0,0],strength:1,radius:5});
  validateMessage({type:'impulse',kind:'radial',p:[0,0,0],strength:2,radius:6});
  validateMessage({type:'ready'});
+ assert.ok(BEHAVIORS.includes('bounce'),'bounce is a protocol behavior');
+ validateMessage({type:'spawn',bodies:[{...BODY,id:3,behavior:'bounce'}]});
 });
 
 test('poses message pins buffer lengths to count',()=>{
  const count=3;
- validateMessage({
-  type:'poses',frame:7,count,
-  positions:new ArrayBuffer(count*POSITION_STRIDE*4),
-  quaternions:new ArrayBuffer(count*QUATERNION_STRIDE*4),
-  sleep:new Uint8Array(count),
- });
- assert.throws(()=>validateMessage({
-  type:'poses',frame:7,count,
-  positions:new ArrayBuffer(4),
-  quaternions:new ArrayBuffer(count*QUATERNION_STRIDE*4),
-  sleep:new Uint8Array(count),
- }),/positions/);
- assert.throws(()=>validateMessage({
-  type:'poses',frame:7,count,
-  positions:new ArrayBuffer(count*POSITION_STRIDE*4),
-  quaternions:new ArrayBuffer(count*QUATERNION_STRIDE*4),
-  sleep:new Uint8Array(count+1),
- }),/sleep/);
+ validateMessage(poseFrame(count));
+ const wrongPositions={...poseFrame(count),positions:new ArrayBuffer(4)};
+ assert.throws(()=>validateMessage(wrongPositions),/positions/);
+ const wrongSleep={...poseFrame(count),sleep:new Uint8Array(count+1)};
+ assert.throws(()=>validateMessage(wrongSleep),/sleep/);
+ // ids ride per frame — wrong type or count is a schema violation, and the
+ // consumer has no other way to map poses back to bodies.
+ const wrongIdsType={...poseFrame(count),ids:[1,2,3]};
+ assert.throws(()=>validateMessage(wrongIdsType),/ids/);
+ const wrongIdsLength={...poseFrame(count),ids:new Uint32Array(count+1)};
+ assert.throws(()=>validateMessage(wrongIdsLength),/ids/);
+});
+
+test('return message pins buffer types for the ping-pong pool',()=>{
+ validateMessage({type:'return',positions:new ArrayBuffer(12),quaternions:new ArrayBuffer(16),sleep:new Uint8Array(1),ids:new Uint32Array(1)});
+ assert.throws(()=>validateMessage({type:'return',positions:new Float32Array(3),quaternions:new ArrayBuffer(16),sleep:new Uint8Array(1),ids:new Uint32Array(1)}),/return\.positions/);
+ assert.throws(()=>validateMessage({type:'return',positions:new ArrayBuffer(12),quaternions:new ArrayBuffer(16),sleep:new ArrayBuffer(1),ids:new Uint32Array(1)}),/return\.sleep/);
+ assert.throws(()=>validateMessage({type:'return',positions:new ArrayBuffer(12),quaternions:new ArrayBuffer(16),sleep:new Uint8Array(1),ids:new Uint8Array(1)}),/return\.ids/);
 });
 
 test('malformed messages throw TypeError naming the offending field',()=>{

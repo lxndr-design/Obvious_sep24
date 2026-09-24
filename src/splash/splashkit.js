@@ -11,7 +11,9 @@ import {sineSeries,layoutPositions,applyJitter} from './gen/series.js';
 
 export function createSplashKit(canvas,initial={}){
  const engine=createEngine({canvas,stage:initial.stage,rendererFactory:initial.rendererFactory,pixelRatioCap:initial.pixelRatioCap});
- const sim=createSimChannel();
+ // The sim worker feeds the field directly: transferred pose buffers arrive,
+ // get wrapped in views, and land in the instance-field read path every frame.
+ const sim=createSimChannel({onPoses:frame=>field.applyPoses(frame)});
  const field=new InstanceField(engine.scene,{capacity:initial.capacity});
  const banner=new BannerConfig(initial.banner);
 
