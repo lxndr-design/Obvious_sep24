@@ -1,4 +1,4 @@
-import {formatCount,formatValue,readTier} from './bindings.js';
+import {formatCount,readTier} from './bindings.js';
 
 // Stats HUD — the evidence channel for the performance model. Polls kit.stats()
 // (the kit has no change events) and renders one line per metric plus the

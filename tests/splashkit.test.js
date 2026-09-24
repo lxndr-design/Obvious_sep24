@@ -126,3 +126,22 @@ test('dispose shuts everything down',()=>{
  assert.equal(kit.sim.pending(),0);
  assert.throws(()=>kit.spawn('blob'),/dispose/);
 });
+
+test('despawn accepts a batch and emits one protocol message',()=>{
+ const kit=kitDriven();
+ const a=kit.spawn('ico',{color:'#112233'});
+ const b=kit.spawn('ico',{color:'#112233'});
+ const despawns=()=>kit.sim.messages().filter(m=>m.type==='despawn');
+ assert.equal(kit.despawn([a,b]),2);
+ assert.equal(despawns().length,1,'a batch replaces an arrangement with one message, not one per body');
+ assert.deepEqual(despawns()[0].ids,[a.id,b.id]);
+ assert.equal(kit.despawn([{id:99999}]),0,'unknown ids are skipped');
+ assert.equal(despawns().length,1,'a no-op batch must not emit an empty message');
+ kit.dispose();
+});
+
+test('kit exposes the engine camera for screen→world projection',()=>{
+ const kit=kitDriven();
+ assert.ok(kit.camera instanceof THREE.PerspectiveCamera);
+ kit.dispose();
+});
