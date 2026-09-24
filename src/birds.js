@@ -41,8 +41,8 @@ export class BirdColony {
  hop(b,target,nextState){b.state='hopping';b.age=0;b.from=b.position.clone();b.to=target;b.nextState=nextState;b.yaw=Math.atan2(-(target.z-b.from.z),target.x-b.from.x);}
  // Plan the steered leg for a flight; avoidance (wired by the ecology) bends
  // the path around solid-form bounds before the bird leaves the ground.
- beginFlight(b,target,{rise=.45,exclude=null,minDuration=0,duration=0}={}){
-  b.flight=planFlight(b,target,{avoidance:this.avoidance,exclude,rise,minDuration,duration});
+ beginFlight(b,target,{rise=.45,exclude=null,minDuration=0,duration=0,approach=false}={}){
+  b.flight=planFlight(b,target,{avoidance:this.avoidance,exclude,rise,minDuration,duration,approach});
   if(b.state==='arriving')b.arrivalDuration=b.flight.length/b.flight.speed;
  }
  step(dt,sites,pointer=null,isClear=()=>true){

@@ -5,7 +5,7 @@ export const birdSpecies=bird=>bird.species??((bird.id-1)%5===3?'pigeon':'songbi
 // multiplier on speed x dt, so the velocity bound still holds and the leg
 // still completes at u=1.
 export function landingEase(u,reach=.28){
- if(u>=1||reach<=0)return 1;
+ if(reach<=0)return 1;
  const t=Math.min(1,Math.max(0,(u-(1-reach))/reach));
  return 1-.7*t*t*(3-2*t);
 }
