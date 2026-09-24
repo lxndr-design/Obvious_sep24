@@ -4,10 +4,13 @@
 
 export const POINTER_MODES=['attract','repel','off'];
 export const IMPULSE_KINDS=['radial'];
-export const BEHAVIORS=['none','float','orbit','wave'];
+export const BEHAVIORS=['none','float','bounce','orbit','wave'];
 export const POSITION_STRIDE=3;
 export const QUATERNION_STRIDE=4;
 export const BYTES_PER_FLOAT=4;
+// Shared body cap for both sides of the boundary (matches InstanceField's
+// default capacity) so pose buffers are sized identically in worker and tests.
+export const SIM_CAPACITY=24000;
 
 const finite=n=>typeof n==='number'&&Number.isFinite(n);
 const vec3=v=>Array.isArray(v)&&v.length===3&&v.every(finite);
@@ -55,7 +58,7 @@ const CHECKS={
   if(!finite(msg.radius)||msg.radius<=0)fail('impulse.radius must be positive');
  },
  poses(msg){
-  const{frame,count,positions,quaternions,sleep}=msg;
+  const{frame,count,positions,quaternions,sleep,ids}=msg;
   if(!uint(frame))fail('poses.frame must be a non-negative integer');
   if(!uint(count))fail('poses.count must be a non-negative integer');
   const posBytes=count*POSITION_STRIDE*BYTES_PER_FLOAT;
@@ -63,10 +66,22 @@ const CHECKS={
   if(!(positions instanceof ArrayBuffer)||positions.byteLength!==posBytes)fail(`poses.positions must be an ArrayBuffer of ${posBytes} bytes`);
   if(!(quaternions instanceof ArrayBuffer)||quaternions.byteLength!==quatBytes)fail(`poses.quaternions must be an ArrayBuffer of ${quatBytes} bytes`);
   if(!(sleep instanceof Uint8Array)||sleep.length!==count)fail(`poses.sleep must be a Uint8Array of ${count} bytes`);
+  // ids travel per frame: spawn/despawn reshuffle the worker's body order,
+  // so the consumer maps by id, never by index assumption.
+  if(!(ids instanceof Uint32Array)||ids.length!==count)fail(`poses.ids must be a Uint32Array of ${count} entries`);
  },
  ready(){},
  error(msg){
   if(typeof msg.message!=='string'||!msg.message)fail('error.message must be a non-empty string');
+ },
+ // Main -> worker: pose buffers handed back after the consumer copied them
+ // out. The worker re-arms them into its ping-pong pool; capacities are the
+ // worker's concern, so only types are pinned here.
+ return(msg){
+  if(!(msg.positions instanceof ArrayBuffer))fail('return.positions must be an ArrayBuffer');
+  if(!(msg.quaternions instanceof ArrayBuffer))fail('return.quaternions must be an ArrayBuffer');
+  if(!(msg.sleep instanceof Uint8Array))fail('return.sleep must be a Uint8Array');
+  if(!(msg.ids instanceof Uint32Array))fail('return.ids must be a Uint32Array');
  },
 };
 
