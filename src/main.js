@@ -48,6 +48,7 @@ import {HedgeScene} from './hedges.js';
 import {applyHedgeSurface} from './hedge-surface.js';
 import {StackScene} from './stacking.js';
 import {SeedSlingshot,SlingGuide} from './slingshot.js';
+import {SettleSolver,releaseVelocity,trackSample} from './settle.js';
 const $=id=>document.getElementById(id);
 const canvas=$('scene');
 const presentationOnly=new URLSearchParams(location.search).has('view')||(import.meta.env.PROD&&!new URLSearchParams(location.search).has('edit'));
@@ -68,7 +69,7 @@ const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scen
 const white=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.88,metalness:0});
 const windTrails=new WindTrails(scene);
 const wind=new WindField(),layout=new HoleLayout(),terrain=new HoleTerrain(scene,makeGroundMaterial(white,sun));terrain.materialForHole=id=>state.holes.find(o=>o.id===id)?.primaryMaterial??white;
-physics=new CollisionScene(RAPIER);physics.objects=state.objects;const stacks=new StackScene(physics);
+physics=new CollisionScene(RAPIER);physics.objects=state.objects;const stacks=new StackScene(physics);const settleSolver=new SettleSolver(physics);
 const pendulums=new PendulumScene(RAPIER);
 const hedges=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.needsUpdate=true;});
 const baths=new HedgeScene(RAPIER,physics,pendulums,()=>{renderer.shadowMap.needsUpdate=true;},'birdbath');
@@ -334,7 +335,7 @@ canvas.addEventListener('pointerdown',event=>{
   if(mode==='pull')plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),picked.hit);
   else plane.set(new THREE.Vector3(0,1,0),-(mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y));
   if(!raycaster.ray.intersectPlane(plane,point))return;
-  state.drag={object:o,mode,offset:(mode==='anchor'?o.anchor:o.mesh.position).clone().sub(point),snapshot:mode==='floor'?stacks.snapshot(o):mode==='pool'?{position:o.mesh.position.clone()}:pendulums.snapshot(o),id:event.pointerId};
+  state.drag={object:o,mode,offset:(mode==='anchor'?o.anchor:o.mesh.position).clone().sub(point),snapshot:mode==='floor'?stacks.snapshot(o):mode==='pool'?{position:o.mesh.position.clone()}:pendulums.snapshot(o),id:event.pointerId,samples:[]};
   if(mode==='floor'||mode==='anchor')dragGhost.begin(mode==='floor'?stacks.members(o):[o]);
   if(mode==='anchor')pendulums.beginAnchor(o);if(mode==='pull'){presentation.clear(o);pendulums.beginPull(o);}
   canvas.setPointerCapture(event.pointerId);controls.enabled=false;gridCursor.setObject(o);gridCursor.position.set(o.mesh.position.x,0,o.mesh.position.z);gridCursor.visible=mode!=='pull';canvas.style.cursor='grabbing';
@@ -375,16 +376,29 @@ function moveScenePointer(event){
  if(moved)dragGhost.hide();else if(mode!=='pool'){state.drag.ghostY=mode==='anchor'?o.mesh.position.y:stacks.supports(o,target.x,target.z)[0].y;dragGhost.show(new THREE.Vector3(rawTarget.x-(mode==='anchor'?o.anchor.x:o.mesh.position.x),state.drag.ghostY-o.mesh.position.y,rawTarget.z-(mode==='anchor'?o.anchor.z:o.mesh.position.z)));}
 
  if(moved){const placed=mode==='anchor'?o.anchor:o.mesh.position;gridCursor.position.set(placed.x,0,placed.z);}
+if(mode==='floor'&&moved)trackSample(state.drag.samples,o,event.timeStamp);
  gridCursor.material.color.set(moved?0x57794a:0x995548);notify(moved?'Grid locked · release to place · Esc to cancel':'Move the ghost to a clear spot');updateCable(o);select(o);
 }
 canvas.addEventListener('pointermove',event=>{if(!state.drag)moveScenePointer(event);});
+// Release settle: a quick fling tosses the form ballistically to the next
+// support; any other release simply rests where the drag left it. moveGround is
+// the same transactional path drags use, so a rejected landing keeps the last
+// valid position (pool basins resolve through the existing support query).
+function applySettle(o,now){
+ const plan=settleSolver.planRelease(o,releaseVelocity(state.drag?.samples,now));
+ return plan?plan.to:null;
+}
 function endDrag(e,cancel=false){
  if(!state.drag||e&&e.pointerId!==state.drag.id)return;const {id,object,mode}=state.drag;
+ // Planned before cleanup (it reads the drag's samples), applied after: the
+ // ghost and cursor reset first, then the settle eases to its landing cell.
+ const settle=mode==='floor'&&!cancel&&e?applySettle(object,e.timeStamp):null;
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
  if(mode==='pull'){pendulums.releasePull();notify('Released · gravity takes over');}
  if(mode==='anchor'){pendulums.endAnchor(object);notify('Anchor placed · pull the hanging form to swing');}
  if(mode==='avatar'&&!cancel&&selfEntity)room.setPose(selfEntity.pose());
  dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active&&!presentationOnly;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+ if(settle)moveGround(object,settle,true);
 }
 function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.mode==='avatar'&&selfEntity){selfEntity.group.position.copy(drag.previous);room.setPose(selfEntity.pose());}if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 bindDragPointer(window,canvas,{getDrag:()=>state.drag,move:moveScenePointer,end:endDrag,cancel:cancelDrag});window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
