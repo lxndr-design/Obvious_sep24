@@ -2,9 +2,12 @@
 // Pure module — no Node builtins, no DOM — so the browser client (U2+) and the
 // server (server/index.js) validate the exact same message shapes.
 
-export const CLIENT_KINDS = ['hello', 'chat', 'boardOp', 'claim', 'roleChange', 'kick', 'ban', 'presence'];
-export const SERVER_KINDS = ['welcome', 'presence', 'chat', 'boardOp', 'roleChange', 'error'];
+export const CLIENT_KINDS = ['hello', 'chat', 'boardOp', 'claim', 'roleChange', 'kick', 'ban', 'presence', 'mintLink'];
+export const SERVER_KINDS = ['welcome', 'presence', 'chat', 'boardOp', 'roleChange', 'error', 'shareLink'];
 export const ROLES = ['guest', 'editor', 'admin'];
+// Roles a share link can carry (U4). Admin never travels by link — it
+// transfers only via passphrase claim on the server.
+export const INVITE_ROLES = ['editor', 'guest'];
 export const BOARD_OP_TYPES = ['add', 'update', 'remove'];
 
 export const LIMITS = {
@@ -137,6 +140,16 @@ function validatePlayerTarget(m) {
 export const validateKick = validatePlayerTarget;
 export const validateBan = validatePlayerTarget;
 
+// Share-link minting (U4): admins only (server enforces), role constrained to
+// INVITE_ROLES. mintLink has no fields beyond kind+role — links are identical
+// for everyone, revocation is the role matrix, not per-link secrets.
+export function validateMintLink(m) {
+  const bad = checkFields(m, ['kind', 'role']);
+  if (bad) return fail(bad);
+  if (!INVITE_ROLES.includes(m.role)) return fail(`role must be one of ${INVITE_ROLES.join(', ')} — admin transfers only via passphrase claim`);
+  return pass({ role: m.role });
+}
+
 function isValidPoseNumber(v, limit) {
   return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= limit;
 }
@@ -165,6 +178,7 @@ const CLIENT_VALIDATORS = {
   kick: validateKick,
   ban: validateBan,
   presence: validatePresence,
+  mintLink: validateMintLink,
 };
 
 // Wire gate for the server: raw frame → validated message.

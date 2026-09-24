@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
   ERROR_CODES,
+  INVITE_ROLES,
   LIMITS,
   applyBoardOp,
   decodeMessage,
@@ -68,6 +69,32 @@ export function verifyToken(secret, token, now = Date.now()) {
   const want = Buffer.from(expected, 'utf8');
   if (given.length !== want.length || !timingSafeEqual(given, want)) return { ok: false };
   return { ok: true, id };
+}
+
+// Share-link invite tokens (U4): `i1.<issuedAt>.<role>.<mac>`. Distinct prefix
+// from session tokens so neither verifier accepts the other's format. They
+// carry a role instead of an identity — anyone holding one may claim that role
+// once, at admission, on a fresh identity.
+export function signInviteToken(secret, role, issuedAt = Date.now()) {
+  const body = `i1.${issuedAt}.${role}`;
+  const mac = createHmac('sha256', secret).update(body).digest('hex');
+  return `${body}.${mac}`;
+}
+
+// Returns {ok:true, role} or {ok:false}.
+export function verifyInviteToken(secret, token, now = Date.now()) {
+  if (typeof token !== 'string') return { ok: false };
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== 'i1') return { ok: false };
+  const [, issuedAtRaw, role, mac] = parts;
+  const issuedAt = Number(issuedAtRaw);
+  if (!Number.isFinite(issuedAt) || now - issuedAt > TOKEN_TTL_MS) return { ok: false };
+  if (!INVITE_ROLES.includes(role)) return { ok: false };
+  const expected = createHmac('sha256', secret).update(`i1.${issuedAtRaw}.${role}`).digest('hex');
+  const given = Buffer.from(mac, 'utf8');
+  const want = Buffer.from(expected, 'utf8');
+  if (given.length !== want.length || !timingSafeEqual(given, want)) return { ok: false };
+  return { ok: true, role };
 }
 
 function freshState() {
@@ -287,6 +314,7 @@ export class RoomServer {
       case 'roleChange': return this.onRoleChange(player, message);
       case 'kick': return this.onKick(player, message);
       case 'ban': return this.onBan(player, message);
+      case 'mintLink': return this.onMintLink(player, message);
       default: return this.sendError(ws, ERROR_CODES.UNKNOWN_KIND, `unknown kind "${message.kind}"`);
     }
   }
@@ -316,6 +344,20 @@ export class RoomServer {
       return;
     }
     const token = identityOk ? message.token : signToken(this.state.secret, message.id);
+    // Share links (U4): a valid invite token lifts a fresh identity — one with
+    // no stored role — to the embedded role, which then persists like any
+    // granted role. It is never a session token: identities that already hold
+    // a role still proved their session token above, and invite tokens cannot
+    // impersonate them.
+    let role = this.roleOf(message.id);
+    if (!identityOk && !hasStoredRole) {
+      const invite = message.token ? verifyInviteToken(this.state.secret, message.token) : { ok: false };
+      if (invite.ok) {
+        this.state.roles[message.id] = invite.role;
+        role = invite.role;
+        this.schedulePersist();
+      }
+    }
     const name = message.name || `Player-${String(++this.nameCounter).padStart(4, '0')}`;
     const existing = this.players.get(message.id);
     if (existing) {
@@ -325,7 +367,7 @@ export class RoomServer {
     const player = {
       id: message.id,
       name,
-      role: this.roleOf(message.id),
+      role,
       token,
       ws,
       joinedAt: Date.now(),
@@ -474,6 +516,17 @@ export class RoomServer {
     this.schedulePersist();
     this.sendError(target.ws, ERROR_CODES.BANNED, 'you were banned by the admin');
     target.ws.close();
+  }
+
+  // Share links (U4): admin-only minting. The token is role-only — the room
+  // has one live link per role, and access is revocable through the role
+  // matrix (kick/ban/demotion) rather than by retiring link secrets.
+  onMintLink(player, message) {
+    if (player.role !== 'admin') {
+      this.sendError(player.ws, ERROR_CODES.FORBIDDEN, 'only the admin can mint share links');
+      return;
+    }
+    this.send(player.ws, { kind: 'shareLink', role: message.role, token: signInviteToken(this.state.secret, message.role) });
   }
 
   // ---- messaging helpers ---------------------------------------------------
