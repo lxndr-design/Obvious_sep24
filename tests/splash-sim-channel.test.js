@@ -48,6 +48,15 @@ test('without a Worker global the channel queues validated commands',()=>{
  assert.equal(channel.pending(),0);
 });
 
+test('drag commands validate and queue like every other command',()=>{
+ const channel=createSimChannel();
+ channel.send({type:'drag',id:4,p:[1,2,3]});
+ channel.send({type:'dragRelease',id:4,v:[0,0,1]});
+ assert.deepEqual(channel.messages().map(m=>m.type),['drag','dragRelease']);
+ assert.throws(()=>channel.send({type:'drag',id:4}),/drag\.p/);
+ channel.dispose();
+});
+
 test('attach replays the backlog in order and leaves the queue empty',()=>{
  const channel=createSimChannel();
  const init={type:'init',bodies:[],config:{gravity:[0,-9.81,0]}};

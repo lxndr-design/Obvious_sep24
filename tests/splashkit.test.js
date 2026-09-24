@@ -97,6 +97,51 @@ test('pointer and shockwave forward as protocol messages',()=>{
  kit.dispose();
 });
 
+test('drag and dragRelease forward as protocol messages',()=>{
+ const kit=kitDriven();
+ kit.drag(7,[1,2,3]);
+ kit.dragRelease(7,[.1,.2,.3]);
+ kit.dragRelease(7); // release without a throw velocity is schema-valid
+ const msgs=kit.sim.messages();
+ assert.deepEqual(msgs.at(-3),{type:'drag',id:7,p:[1,2,3]});
+ assert.deepEqual(msgs.at(-2),{type:'dragRelease',id:7,v:[.1,.2,.3]});
+ assert.deepEqual(msgs.at(-1),{type:'dragRelease',id:7});
+ kit.dispose();
+});
+
+test('screenToPlane maps the screen center to the scene center on the banner plane',()=>{
+ const kit=kitDriven();
+ kit.engine.camera.updateMatrixWorld(true); // project() reads matrixWorldInverse
+ const p=kit.screenToPlane(0,0);
+ assert.ok(p,'the center ray must reach the banner plane');
+ assert.ok(Math.abs(p[0])<1e-6&&Math.abs(p[1])<1e-6&&Math.abs(p[2])<1e-6,`center must map to the origin, got ${p}`);
+ // A `through` point re-anchors the plane (the drag/drop flavor): the picked
+ // point, projected to ndc, must map back to itself through its own plane.
+ const through=[0,0,2];
+ const pNdc=new THREE.Vector3(...through).project(kit.engine.camera);
+ const back=kit.screenToPlane(pNdc.x,pNdc.y,through);
+ assert.ok(back&&back.every((v,i)=>Math.abs(v-through[i])<1e-6),`the drag plane through a point must map that point back, got ${back}`);
+ kit.dispose();
+});
+
+test('pickBody returns the pooled handle under the cursor and null on empty space',()=>{
+ const kit=kitDriven();
+ const h=kit.spawn('blob',{position:[0,2,0]});
+ // Instance matrices come from applied pose frames — feed one so the raycast
+ // sees the body where it was spawned, exactly as after a real worker frame.
+ kit.applyPoses({count:1,ids:[h.id],positions:new Float32Array([0,2,0]),quaternions:new Float32Array([0,0,0,1]),sleep:new Uint8Array([0])});
+ const cam=kit.engine.camera;
+ cam.updateMatrixWorld(true);
+ const ndc=new THREE.Vector3(0,2,0).project(cam);
+ const picked=kit.pickBody(ndc.x,ndc.y);
+ assert.ok(picked,`the body under its own projection must be picked (ndc ${ndc.x.toFixed(3)},${ndc.y.toFixed(3)})`);
+ assert.equal(picked.id,h.id);
+ assert.equal(kit.pickBody(.98,-.98),null,'empty space picks nothing');
+ kit.despawn(h.id);
+ assert.equal(kit.pickBody(ndc.x,ndc.y),null,'a released body is no longer pickable');
+ kit.dispose();
+});
+
 test('banner config patches flow into later spawns',()=>{
  const kit=kitDriven();
  kit.banner.patch({preset:'torus',material:'matte',color:'#abcdef'});

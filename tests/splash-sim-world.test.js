@@ -247,6 +247,61 @@ test('deterministic N-step runs: identical worlds produce identical poses',()=>{
  a.dispose();b.dispose();
 });
 
+test('drag spring carries the held body to the target; release throws with velocity',()=>{
+ const world=new SplashWorld(R);
+ const a=body('blob',[0,2,0],'none');
+ world.spawn([a]);
+ world.drag(a.id,[0,6,0]);
+ drive(world,180,180); // 1.5 s
+ const p=world.byId.get(a.id).body.translation();
+ // Spring sag against gravity is ~g/dragK ≈ 0.12 — well inside the tolerance.
+ assert.ok(Math.hypot(p.x,p.y-6,p.z)<.6,`drag must carry the body to the target, hung at y=${p.y.toFixed(2)}`);
+ world.releaseDrag(a.id,[0,0,20]);
+ const v=world.byId.get(a.id).body.linvel();
+ assert.ok(Math.abs(v.z-20)<1e-6,`release must set the throw velocity, got vz=${v.z}`);
+ world.dispose();
+});
+
+test('drag replaces behavior and pointer forces for the held body',()=>{
+ const world=new SplashWorld(R);
+ const a=body('blob',[0,2,0],'orbit'); // the orbit layer would fling it around the ring
+ world.spawn([a]);
+ world.setPointer('repel',[0,6,0],3,10); // hostile magnet right at the drag target
+ world.drag(a.id,[0,6,0]);
+ drive(world,180,180);
+ const p=world.byId.get(a.id).body.translation();
+ assert.ok(Math.hypot(p.x,p.y-6,p.z)<.8,'held body must track the target, not the ring or the magnet');
+ assert.equal(world.releaseDrag(a.id),true,'release without a velocity keeps the spring velocity');
+ assert.equal(world.releaseDrag(a.id),false,'release is one-shot');
+ world.dispose();
+});
+
+test('drag wakes a sleeping held body',()=>{
+ const world=new SplashWorld(R);
+ const a=body('blob',[0,0,0],'none');
+ world.spawn([a]);
+ drive(world,600); // settle and sleep (probed: asleep by step ~420)
+ assert.ok(world.byId.get(a.id).body.isSleeping(),'body must be asleep before the grab');
+ world.drag(a.id,[0,3,0]);
+ drive(world,30);
+ assert.ok(!world.byId.get(a.id).body.isSleeping(),'the grab must wake the held body');
+ world.dispose();
+});
+
+test('despawning the dragged body clears the drag; stale releases never fling',()=>{
+ const world=new SplashWorld(R);
+ const a=body('blob',[0,2,0]),b=body('ico',[3,2,0]);
+ world.spawn([a,b]);
+ world.drag(a.id,[0,6,0]);
+ world.despawn([a.id]);
+ assert.equal(world._drag,null,'a removed body must not stay dragged');
+ assert.equal(world.releaseDrag(a.id,[0,0,99]),false,'a stale release must not resurrect the drag');
+ world.drag(b.id,[1,1,1]);
+ world.releaseDrag(b.id+999); // mismatched id: no-op, drag persists
+ assert.ok(world._drag&&world._drag.id===b.id,'mismatched release must leave the drag active');
+ world.dispose();
+});
+
 test('advance clamps long stalls to MAX_FRAME_DT',()=>{
  const world=new SplashWorld(R);
  const a=body('blob',[0,0,0]);
