@@ -1,6 +1,7 @@
 import './splash.css';
 import {createBootSequence} from './splash/boot.js';
 import {createSplashKit} from './splash/splashkit.js';
+import {createEditor} from './splash/editor/panel.js';
 
 // Self-contained splash entry (mirrors catalog.js): owns its DOM, its CSS and
 // its renderer. Never imports main.js or style.css. Physics lives in the sim
@@ -27,7 +28,10 @@ try{
   },
  });
  boot.mark('engine');paintMilestones();
- kit.spawnSeries({volatility:.2,seed:11}); // default banner: arced sine series, banner defaults
+ kit.banner.patch({volatility:.2,seed:11}); // default banner: arced sine series, banner defaults
+ // Editor surface (rail, gallery, HUD, drops); its first regen spawns the
+ // arrangement above.
+ createEditor({kit,stage:document.getElementById('splash-stage')});
  window.splashkit=kit; // distinct global — window.whitewater belongs to the birdbath app
 }catch(error){
  loading.classList.add('failed');

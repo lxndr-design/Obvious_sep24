@@ -1,0 +1,37 @@
+/* Editor chrome for the splash studio. Own scope — splash.css holds the page,
+   style.css (birdbath app) must never be imported here. Same palette. */
+
+.splash-panel{position:absolute;z-index:2;background:rgba(12,14,18,.88);border:1px solid #23262e;border-radius:12px;backdrop-filter:blur(6px)}
+
+#splash-rail{top:76px;left:16px;bottom:110px;width:232px;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+#splash-rail h2{margin:6px 0 2px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8a91a3}
+.rail-row{display:grid;grid-template-columns:1fr;gap:4px;font-size:12px;color:#c6ccda}
+.rail-row label{color:#8a91a3}
+.rail-row output{color:#e8eaf0;font-variant-numeric:tabular-nums}
+.rail-row input[type=range]{width:100%;accent-color:#6f8cff}
+.rail-row select,.rail-row input[type=color]{width:100%;padding:6px 8px;background:#14171d;color:#e8eaf0;border:1px solid #2a2e38;border-radius:8px;font:inherit}
+.mode-group{display:flex;gap:6px}
+.mode-group button{flex:1;padding:7px 6px;font:inherit;font-size:12px;color:#aeb5c6;background:#14171d;border:1px solid #2a2e38;border-radius:8px;cursor:pointer}
+.mode-group button[aria-pressed=true]{color:#e8eaf0;border-color:#6f8cff;background:#1a1f2b}
+.rail-button{padding:8px 10px;font:inherit;font-size:12px;color:#e8eaf0;background:#1a1f2b;border:1px solid #2a2e38;border-radius:8px;cursor:pointer}
+.rail-button:hover{border-color:#6f8cff}
+.rail-status{min-height:1em;font-size:11px;color:#8a91a3;line-height:1.4}
+
+#splash-hud{top:76px;right:16px;padding:10px 12px;display:grid;gap:2px;font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#aeb5c6;min-width:130px}
+#splash-hud .hud-line{white-space:pre}
+#splash-hud.hud-warn{border-color:#8a5a2a;color:#ffb26b}
+
+#splash-gallery{left:50%;bottom:16px;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:10px 12px;display:flex;gap:10px;overflow-x:auto}
+.gallery-tile{display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;align-items:center;column-gap:8px;min-width:108px;padding:8px 10px;font:inherit;color:#e8eaf0;background:#14171d;border:1px solid #2a2e38;border-radius:10px;cursor:grab;text-align:left;transition:transform .12s ease,border-color .12s ease}
+.gallery-tile:hover{transform:translateY(-2px);border-color:#6f8cff}
+.gallery-tile:active{cursor:grabbing}
+.tile-swatch{grid-row:1 / span 2;width:26px;height:26px;border-radius:50%;box-shadow:inset 0 0 6px rgba(255,255,255,.25)}
+.tile-name{font-size:13px;font-weight:600}
+.tile-tags{font-size:10px;color:#8a91a3}
+
+a:focus-visible,.gallery-tile:focus-visible,.rail-button:focus-visible{outline:2px solid #6f8cff;outline-offset:3px}
+
+@media(max-width:700px){
+ #splash-rail{width:196px;padding:10px 12px}
+ #splash-hud{top:auto;bottom:96px;right:8px}
+}
