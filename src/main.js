@@ -28,6 +28,8 @@ import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {LABELS} from './shapes.js';
 import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
+import {RoomClient,loadIdentity,saveIdentity,STATUS} from './net/client.js';
+import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
 import {DitherShader} from './dither.js';
@@ -77,6 +79,95 @@ ecology.sticks.canTake=o=>!presentationOnly&&state.drag?.object!==o&&!state.obje
 ecology.sticks.onTake=o=>{const selected=state.selected;remove(o);if(selected&&selected!==o)select(selected);return !state.objects.includes(o);};
 const sling=new SeedSlingshot(RAPIER),slingGuide=new SlingGuide(scene);
 const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=new DragPresentation(),dragGhost=new DragGhost(scene);
+// ---- players (Feature 7, U2): presence, self-drag, disconnect grace -----
+const playerGroup=new THREE.Group();scene.add(playerGroup);
+const spawnProbe=avatarForm(RAPIER);
+const entities=new Map(); // playerId → {entity, tag, material}
+let selfEntity=null,playerName='',playerRole='guest';
+const room=new RoomClient({
+ url:(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws',
+ identity:loadIdentity(typeof localStorage!=='undefined'?localStorage:null),
+ connect:url=>new WebSocket(url),storage:typeof localStorage!=='undefined'?localStorage:null,
+ onEvent:onRoomEvent,
+});
+// Free spot hugging the back edge of the park, clear of solids and other players.
+function findSpawnSpot(minSeparation=1.5){
+ const taken=[...entities.values()].map(entry=>entry.entity.group.position);
+ return pickSpawnSpot(spawnCandidates({grid:GRID}),(x,z)=>!taken.some(p=>Math.hypot(p.x-x,p.z-z)<minSeparation)&&avatarPlacement(physics,spawnProbe,x,z));
+}
+function spawnEntity(player,self=false){
+ const material=white.clone();
+ const entity=createPlayerEntity({name:player.name,material,self});
+ const placement=player.pose?new THREE.Vector3(player.pose.x,player.pose.y,player.pose.z):findSpawnSpot();
+ if(placement)entity.setPose({x:placement.x,y:placement.y,z:placement.z,yaw:player.pose?.yaw??0});
+ else entity.setPose({x:0,y:0,z:0,yaw:0}); // ring exhausted — still joins, at the park center
+ entity.group.userData.playerId=player.id;
+ playerGroup.add(entity.group);
+ const tag=document.createElement('div');tag.className='player-tag';tag.textContent=nameTagLabel(entity.name,self);tag.dataset.playerId=player.id;$('stage').append(tag);
+ entities.set(player.id,{entity,tag,material});
+ if(self){selfEntity=entity;room.setPose(entity.pose());}
+ return entity;
+}
+function despawnEntity(id){
+ const entry=entities.get(id);if(!entry)return;
+ entry.entity.dispose();entry.material.dispose();playerGroup.remove(entry.entity.group);entry.tag.remove();
+ entities.delete(id);
+ if(id===room.identity.id)selfEntity=null;
+}
+function despawnSelf(){if(selfEntity)despawnEntity(room.identity.id);}
+function onRoomEvent(event){
+ switch(event.type){
+  case 'welcome':
+   // The server may have assigned Player-####; adopt and persist it so the
+   // name survives reloads and reconnects.
+   playerName=event.name;playerRole=event.role;
+   if(room.identity.name!==event.name){room.identity.name=event.name;saveIdentity(room.storage,room.identity);}
+   despawnSelf();spawnEntity({id:event.id,name:event.name},true);
+   updatePlayerBadge();notify(`Joined as ${event.name}`);
+   break;
+  case 'player-join': if(!entities.has(event.player.id))spawnEntity(event.player);break;
+  case 'player-leave': entities.get(event.player.id)?.entity.setLeaving(true);break;
+  case 'player-remove': despawnEntity(event.id);break;
+  case 'player-move': {const entry=entities.get(event.id);if(entry){entry.entity.setLeaving(false);entry.entity.setPose(event.pose);}}break;
+  case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=nameTagLabel(event.player.name,entry.entity.self);updatePlayerBadge();}}break;
+  case 'status': case 'lost': updatePlayerBadge();break;
+  case 'error': notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
+  case 'left': despawnSelf();updatePlayerBadge();notify('You left the board');break;
+ }
+}
+function updatePlayerBadge(){
+ const name=$('player-name'),toggle=$('leave-board'),edit=$('rename-player');
+ $('player-badge').hidden=false;
+ if(room.status===STATUS.ONLINE){name.textContent=playerName;edit.hidden=false;toggle.textContent='Leave the board';}
+ else if(room.status===STATUS.CLOSED){name.textContent='Left the room';edit.hidden=true;toggle.textContent='Join the board';}
+ else if(room.left){name.textContent='Not on the board';edit.hidden=true;toggle.textContent='Join the board';}
+ else{name.textContent=room.status===STATUS.CONNECTING?'Joining the meadow…':'Connection lost — retrying…';edit.hidden=true;toggle.textContent='Leave the board';}
+}
+function beginRename(){
+ const input=document.createElement('input');input.maxLength=32;input.value=playerName;input.setAttribute('aria-label','Display name');
+ const span=$('player-name');span.replaceChildren(input);input.focus();input.select();let committed=false;
+ const commit=()=>{if(committed)return;committed=true;const value=input.value.trim();if(value&&room.rename(value))playerName=room.identity.name;updatePlayerBadge();};
+ input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}if(e.key==='Escape'){e.preventDefault();committed=true;updatePlayerBadge();}});
+ input.addEventListener('blur',commit);
+}
+function updateTags(){
+ // Name tags are HTML overlays projected from each entity's head, like the
+ // popup messages — crisp under the dither, and easy to hit-test.
+ for(const entry of entities.values()){
+  const point=entry.entity.group.position.clone();point.y+=PLAYER_HEIGHT+.18;point.project(camera);
+  const x=(point.x+1)/2*canvas.clientWidth,y=(1-point.y)/2*canvas.clientHeight;
+  const visible=point.z<1&&x>=-60&&y>=-60&&x<=canvas.clientWidth+60&&y<=canvas.clientHeight+60;
+  entry.tag.hidden=!visible;
+  if(visible){entry.tag.style.left=`${x}px`;entry.tag.style.top=`${y}px`;}
+ }
+}
+$('rename-player').addEventListener('click',beginRename);
+$('leave-board').addEventListener('click',()=>{
+ if(room.status===STATUS.ONLINE)room.leave();
+ else if(room.status===STATUS.CLOSED||room.left)room.rejoin();
+ else notify('Still connecting — try again in a moment');
+});
+room.connect(); // auto-join on load
 const signFocus=new SignFocus(camera,controls);
 installTrackpadPan(canvas,camera,controls,()=>presentationOnly||signFocus.active||!!state.drag||!!toolbarDrag);
 const poleEye=new PoleEye($('stage'),pole=>{cancelDrag();cancelToolbarDrag();messages.clear();select(null);signFocus.enter(pole,state.objects,canvas.clientWidth,canvas.clientHeight);poleEye.over=false;poleEye.hover=false;poleEye.pole=null;notify('Click empty space to return');});
@@ -212,7 +303,25 @@ function seedDropPoint(spread=0){
  return p;
 }
 canvas.addEventListener('pointerdown',event=>{
- if(boardView.active)return;if(event.button!==0||activePointers.size>1)return;if(signFocus.active){ray(event);if(!pick())signFocus.exit();return;}if(presentationOnly)return;canvas.focus({preventScroll:true});ray(event);trackPointer(event);const picked=pick();
+ if(boardView.active)return;if(event.button!==0||activePointers.size>1)return;if(signFocus.active){ray(event);if(!pick())signFocus.exit();return;}
+ // Player avatars intercept the pointer before scene editing: your own entity
+ // drags kinematically through this same pipeline; other players' entities are
+ // refused (and work in presentation mode, where scene editing is disabled).
+ ray(event);
+ const playerHit=raycaster.intersectObjects(playerGroup.children,true)[0];
+ if(playerHit){
+  const hitId=playerHit.object.parent?.userData?.playerId??playerHit.object.userData?.playerId;
+  if(hitId&&hitId!==room.identity.id){const other=entities.get(hitId);notify(other?`${other.entity.name} moves their own player`:'');return;}
+  if(selfEntity){
+   const planePoint=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());if(!planePoint)return;
+   canvas.focus({preventScroll:true});
+   state.drag={mode:'avatar',id:event.pointerId,offset:new THREE.Vector3(planePoint.x-selfEntity.group.position.x,0,planePoint.z-selfEntity.group.position.z),previous:selfEntity.group.position.clone(),lastTarget:null,blocked:false};
+   canvas.setPointerCapture(event.pointerId);controls.enabled=false;canvas.style.cursor='grabbing';
+   notify('Drag your player · release to place · Esc to cancel');
+  }
+  return;
+ }
+ if(presentationOnly)return;canvas.focus({preventScroll:true});ray(event);trackPointer(event);const picked=pick();
  messages.clear();
  if(state.mouseMode==='seed'){const p=seedDropPoint();if(p)ecology.scatterFood(p);state.drag={mode:'feed',id:event.pointerId,last:performance.now(),lastPoint:p?.clone()};canvas.setPointerCapture(event.pointerId);controls.enabled=false;return;}
  if(picked?.locked)return;
@@ -237,6 +346,15 @@ function moveScenePointer(event){
  if(state.drag.id!==event.pointerId)return;
  if(state.drag.mode==='feed'){const p=seedDropPoint(),now=performance.now();if(p&&now-state.drag.last>180&&(!state.drag.lastPoint||p.distanceTo(state.drag.lastPoint)>.035)){ecology.scatterFood(seedDropPoint(.25));state.drag.last=now;state.drag.lastPoint=p.clone();}return;}
  if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&(state.drag.view===p.view||state.drag.view?.field===p.view.field)){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
+ if(state.drag.mode==='avatar'){
+  if(!raycaster.ray.intersectPlane(groundRayPlane,point))return;
+  const rawTarget=point.clone().add(state.drag.offset);
+  const placement=avatarPlacement(physics,spawnProbe,rawTarget.x,rawTarget.z);
+  if(placement){selfEntity.setPose({x:placement.x,y:placement.y,z:placement.z,yaw:selfEntity.group.rotation.y});room.setPose(selfEntity.pose());}
+  state.drag.blocked=!placement;
+  notify(placement?'Grid locked · release to place':'Move to a clear spot');
+  return;
+ }
  if(!raycaster.ray.intersectPlane(plane,point))return;
  const {object:o,mode}=state.drag,target=point.clone().add(state.drag.offset);
  if(mode==='seed'){sling.aim(target);slingGuide.update(sling);return;}
@@ -264,9 +382,10 @@ function endDrag(e,cancel=false){
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
  if(mode==='pull'){pendulums.releasePull();notify('Released · gravity takes over');}
  if(mode==='anchor'){pendulums.endAnchor(object);notify('Anchor placed · pull the hanging form to swing');}
- dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+ if(mode==='avatar'&&!cancel&&selfEntity)room.setPose(selfEntity.pose());
+ dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active&&!presentationOnly;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
 }
-function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
+function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.mode==='avatar'&&selfEntity){selfEntity.group.position.copy(drag.previous);room.setPose(selfEntity.pose());}if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 bindDragPointer(window,canvas,{getDrag:()=>state.drag,move:moveScenePointer,end:endDrag,cancel:cancelDrag});window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
 function placeForm(o,x,z){
  if(!canManipulate(o,stacks.members(o))||presentationOnly)return false;
@@ -485,6 +604,7 @@ function tick(now){
  messageHops.step(dt,state.objects,{disabled:presentationOnly||state.paused||reducedMotion.matches||signFocus.active,busy:o=>dragged.has(o)||presentation.motion.has(o),clear:(members,height)=>hopClearance(stacks,members,height)});
  for(const event of messageHops.events){ecology.objectHop(event);if(event.kind==='takeoff')hopPuffs.emit(event.members,p=>ecology.waterAt(p));}
  hopPuffs.step(state.paused?0:dt,camera);
+ room.step();updateTags();
  presentation.withPresentation(()=>messageHops.withPresentation(()=>{
   for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
   if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas,[...state.objects,...state.holes]);
@@ -496,6 +616,6 @@ function tick(now){
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
-const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,letter:o.letter,board:o.board,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active||boardView.active,boardOpen:boardView.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
+const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,letter:o.letter,board:o.board,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active||boardView.active,boardOpen:boardView.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},players:{status:room.status,name:playerName,role:playerRole,self:selfEntity?{name:playerName,position:selfEntity.group.position.toArray()}:null,remote:[...entities.entries()].filter(([id])=>id!==room.identity.id).map(([id,entry])=>({id,name:entry.entity.name,position:entry.entity.group.position.toArray()}))},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
 window.whitewater=api;
 if(document.modelContext?.registerTool){const lifecycle=new AbortController();window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});for(const tool of [{name:'export_space',description:'Export the current space including objects, messages, environment and camera.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>captureSpace()},{name:'read_scene',description:'Read the shapes and their positions in the scene.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>api.read()},{name:'add_form',description:'Add a white geometric form to an available floor position.',inputSchema:{type:'object',properties:{shape:{type:'string',enum:[...Object.keys(LABELS),'pool']}},required:['shape'],additionalProperties:false},execute:input=>({id:api.add(input.shape)})},{name:'move_form',description:"Reposition a floor form or a hanging form’s ceiling anchor to a grid position if the path is clear.",inputSchema:{type:'object',properties:{id:{type:'number'},x:{type:'number'},z:{type:'number'}},required:['id','x','z'],additionalProperties:false},execute:input=>({moved:api.move(input.id,input.x,input.z)})}]){try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(console.warn);}catch(error){console.warn(error);}}}
