@@ -269,7 +269,9 @@ export class RoomClient {
       this.emit({type: 'player-join', player: this.roster.players.get(view.id)});
     }
     this.setStatus(STATUS.ONLINE);
-    this.emit({type: 'welcome', id: message.id, name: message.name, role: message.role, token: message.token});
+    // The board snapshot (U5) rides the same welcome: objects keyed by network
+    // id plus the room revision; null when the server sent no snapshot at all.
+    this.emit({type: 'welcome', id: message.id, name: message.name, role: message.role, token: message.token, board: message.snapshot?.board ?? null});
     // Presence queued before the socket came up goes out now, in order.
     while (this.outbox.length) {
       const queued = this.outbox.shift();
