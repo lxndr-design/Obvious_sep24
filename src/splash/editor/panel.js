@@ -3,6 +3,7 @@ import {bumpCall,formatValue,GENERATOR_MODES,RAIL_CONTROLS,TOOL_LIMITS} from './
 import {createSeriesTool} from './series-tool.js';
 import {createGallery} from './gallery.js';
 import {createHud} from './hud.js';
+import {installDrop} from './dnd.js';
 import './editor.css';
 
 // The banner rail: hand-rolled DOM (repo convention — no framework), every
@@ -183,11 +184,15 @@ export function createEditor({kit,stage,doc=document}={}){
  const gallery=createGallery({kit,doc});
  const hud=createHud({kit,doc});
  stage?.append(rail,gallery,hud.root);
+ // Drops land on the canvas itself — panels overlay it, so a tile never
+ // drops "into" the rail. The ghost preview (interaction slice) hooks here.
+ const removeDrop=installDrop({canvas:stage?.querySelector?.('canvas'),camera:kit.camera,kit});
  hud.start();
  seriesTool.requestRegen();
  return{
   seriesTool,hud,
   dispose(){
+   removeDrop?.();
    hud.dispose();
    seriesTool.dispose();
    rail.remove();
