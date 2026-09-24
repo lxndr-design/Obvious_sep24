@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import {WaterRefraction,refractiveWaterMaterial} from '../src/water-refraction.js';
 function fixture(){
  const capture=new WaterRefraction(),scene=new THREE.Scene(),camera=new THREE.OrthographicCamera(-5,5,4,-4,.1,100);
+ camera.position.set(0,0,30); // the capture gates on the basins being on screen
  const original=new THREE.MeshPhongMaterial({transparent:true,opacity:.48}),surface=refractiveWaterMaterial(original),a=new THREE.Mesh(new THREE.PlaneGeometry(),surface),b=new THREE.Mesh(new THREE.PlaneGeometry(),surface),solid=new THREE.Mesh(new THREE.BoxGeometry());scene.add(a,b,solid);
  let target={name:'composer'},calls=0;const previous=target;
  const renderer={getDrawingBufferSize:v=>v.set(1400,900),getRenderTarget:()=>target,setRenderTarget:t=>{target=t;},clear(){},render(){calls++;assert.equal(a.visible,false);assert.equal(b.visible,false);assert.equal(solid.visible,true);}};

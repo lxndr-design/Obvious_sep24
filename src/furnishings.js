@@ -20,14 +20,22 @@ export function makeFurnishing(type,R){
  if(!Object.hasOwn(FURNISHING_LABELS,type))throw Error('Unknown furnishing');
  const scale=family==='plant'?PLANT_SIZES[size]:family==='table'?TABLE_SIZES[size]:1;
  const geometries=[],parts=[];
+ // Collider from the hull's raw positions. Hull wedges pass through here
+ // without the visual flattening so their collider bytes stay identical.
+ function addCollider(geometry){
+  parts.push({shape:new R.ConvexPolyhedron(new Float32Array(geometry.attributes.position.array)),offset:new THREE.Vector3()});
+ }
  function add(geometry,position=new THREE.Vector3(),rotation=new THREE.Quaternion(),analytic=null){
   geometry.applyQuaternion(rotation);geometry.translate(position.x,position.y,position.z);geometry.scale(scale,scale,scale);
-  const shape=analytic??new R.ConvexPolyhedron(new Float32Array(geometry.attributes.position.array));
-  parts.push({shape,offset:analytic?position.clone().multiplyScalar(scale):new THREE.Vector3()});
+  if(analytic)parts.push({shape:analytic,offset:position.clone().multiplyScalar(scale)});
+  else addCollider(geometry);
   const flat=geometry.index?geometry.toNonIndexed():geometry.clone();
   flat.deleteAttribute('uv');geometries.push(flat);geometry.dispose();
  }
  const v=(x,y,z)=>new THREE.Vector3(x,y,z);
+ const strips=[];
+ // One planar wall quad as two triangles, merged with the other pieces below.
+ function strip(a,b,c,d){for(const [p,q,r] of [[a,b,c],[a,c,d]])strips.push(p.x,p.y,p.z,q.x,q.y,q.z,r.x,r.y,r.z);}
  function stem(a,b,r=.018){const delta=b.clone().sub(a);add(new THREE.CylinderGeometry(r,r,delta.length(),8),a.clone().add(b).multiplyScalar(.5),new THREE.Quaternion().setFromUnitVectors(v(0,1,0),delta.normalize()));}
  function leaf(a,b,width,thickness){
   const axis=b.clone().sub(a),side=v(axis.z,0,-axis.x).normalize();if(side.lengthSq()<.01)side.set(1,0,0);
@@ -54,12 +62,18 @@ export function makeFurnishing(type,R){
   add(new THREE.CylinderGeometry(.18,.23,1.14,32),v(0,.71,0));
   add(new THREE.CylinderGeometry(.66,.40,.16,48),v(0,1.24,0));
   if(family==='fountain')add(new THREE.CylinderGeometry(.055,.10,.30,12),v(0,1.47,0));
-  // Hollow bowl: each wall wedge is convex, with no hull spanning the basin.
+  // Hollow bowl. The colliders stay the 48 convex wedges; the drawn wall is
+  // four strips per wedge with the shared radial planes omitted — adjacent
+  // hulls triangulate those planes along different diagonals, so the merged
+  // mesh carried every seam as an interior face.
   for(let i=0;i<48;i++){
-   const points=[];
-   for(const a of [i*Math.PI/24,(i+1)*Math.PI/24])for(const [r,y] of [[.66,1.32],[.76,FOUNTAIN.height],[.62,FOUNTAIN.height],[.53,1.32]])points.push(v(Math.cos(a)*r,y,Math.sin(a)*r));
-   add(new ConvexGeometry(points));
+   const a0=i*Math.PI/24,a1=(i+1)*Math.PI/24,corner=(r,y,a)=>v(Math.cos(a)*r,y,Math.sin(a)*r);
+   const ob0=corner(.66,1.32,a0),ob1=corner(.66,1.32,a1),ot0=corner(.76,FOUNTAIN.height,a0),ot1=corner(.76,FOUNTAIN.height,a1),it0=corner(.62,FOUNTAIN.height,a0),it1=corner(.62,FOUNTAIN.height,a1),ib0=corner(.53,1.32,a0),ib1=corner(.53,1.32,a1);
+   const wedge=new ConvexGeometry([ob0,ot0,it0,ib0,ob1,ot1,it1,ib1]);
+   addCollider(wedge);wedge.dispose();
+   strip(ob0,ot0,ot1,ob1);strip(ot0,it0,it1,ot1);strip(it0,ib0,ib1,it1);strip(ib0,ob0,ob1,ib1);
   }
+  const wall=new THREE.BufferGeometry();wall.setAttribute('position',new THREE.Float32BufferAttribute(strips,3));wall.computeVertexNormals();geometries.push(wall);
  }else if(family==='table'){
   const height=1.3,thickness=.13,topY=height-thickness/2;
   if(kind==='round')add(new THREE.CylinderGeometry(1,1,thickness,64),v(0,topY,0),undefined,new R.Cylinder(thickness*scale/2,scale));
