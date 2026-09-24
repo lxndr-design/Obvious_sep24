@@ -292,7 +292,7 @@ function openPicker(family){
  const sizes=sign?[['text','Icon, text & arrow'],['icon','Icon & arrow']]:grandma?Object.entries(GRANDMA_HAIR):[['1','Small'],['2','Medium'],['3','Large']];
  $('object-variant').replaceChildren(...variants.map(([value,label])=>new Option(label,value)));
  $('object-size').replaceChildren(...sizes.map(([value,label])=>new Option(label,value)));
- const remembered=pickerTypes[family].split('-');$('object-variant').value=home?pickerTypes[family].slice(5):remembered[1];$('object-size').value=sign||grandma?remembered[2]:(document.getElementById('add-'+family).dataset.gridSize||'2');$('picker-scale-wrap').hidden=!sign&&!grandma;$('picker-scale').value=document.getElementById('add-'+family).dataset.gridSize||'2';
+ const remembered=pickerTypes[family].split('-');$('object-variant').value=home?pickerTypes[family].replace(/^home-/,''):remembered[1];$('object-size').value=sign||grandma?remembered[2]:(document.getElementById('add-'+family).dataset.gridSize||'2');$('picker-scale-wrap').hidden=!sign&&!grandma;$('picker-scale').value=document.getElementById('add-'+family).dataset.gridSize||'2';
  $('picker-hint').textContent=sign?'Drag onto a sign pole. Each sign can point in its own direction.':grandma?'Occasionally scatters birdseed. Drag onto a park bench to sit.':home?'Choose a household model and size.':plant?'Choose a plant and size.':'Choose a shape and size.';
  $('object-picker').showModal();
 }
