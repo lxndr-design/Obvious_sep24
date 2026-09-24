@@ -49,6 +49,7 @@ export function createGovernance({client, doc = document, members, selfRole, sha
   button.id = 'governance-toggle';
   button.type = 'button';
   button.textContent = 'Governance';
+  button.addEventListener('click', open);
   doc.getElementById('player-badge').append(button);
 
   const dialog = doc.createElement('dialog');
