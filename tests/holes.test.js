@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import R from '@dimforge/rapier3d-compat';
+import {HoleLayout} from '../src/terrain.js';
+import {HoleTerrain} from '../src/hole-terrain.js';
+import {PendulumScene} from '../src/pendulums.js';
+import {CollisionScene} from '../src/collision.js';
+import {makeForm} from '../src/shapes.js';
+await R.init();
+const area=layout=>layout.bottom.reduce((s,p)=>s+p.w*p.d,0);
+const hole=(id,x,z,size=2)=>({id,x,z,size});
+test('adjacent squares form one opening with no interior wall; L shapes preserve their uncut corner',()=>{
+ const layout=new HoleLayout([hole(1,0,0),hole(2,2,0)]);
+ assert.equal(layout.components.length,1);assert.equal(area(layout),8);
+ assert.equal(layout.contains(1,0),true,'shared edge belongs to the opening');
+ assert.ok(!layout.walls.some(p=>Math.abs(p.x-1)<.05&&Math.abs(p.z)<.99),'no seam wall');
+ layout.set([hole(1,0,0),hole(2,2,0),hole(3,0,2)]);
+ assert.equal(area(layout),12);assert.equal(layout.contains(2,2),false);assert.equal(layout.components.length,1);
+ assert.ok(layout.ground.some(p=>Math.abs(p.x-2)<=p.w/2&&Math.abs(p.z-2)<=p.d/2),'L-shaped notch stays ground');
+});
+test('overlapping holes union once, corner-only touching stays disconnected, and deletion closes the opening',()=>{
+ const layout=new HoleLayout([hole(1,0,0),hole(2,1,0)]);assert.equal(area(layout),6);
+ layout.set([hole(1,0,0),hole(2,2,2)]);assert.equal(layout.components.length,2);
+ layout.set([hole(2,2,2)]);assert.equal(layout.contains(0,0),false);assert.equal(area(layout),4);
+ layout.set([]);assert.equal(area(layout),0);assert.equal(layout.walls.length,0);assert.equal(layout.components.length,0);
+});
+test('water propagates through a joined seam, stays outside L-shaped ground, and survives rebuilding',()=>{
+ const layout=new HoleLayout([hole(1,-10,0),hole(2,-8,0),hole(3,-10,2)]),terrain=new HoleTerrain(new THREE.Scene(),new THREE.MeshStandardMaterial());terrain.rebuild(layout);
+ assert.equal(terrain.views.length,1);assert.equal(terrain.at(-8,2),undefined);
+ const view=terrain.views[0];view.field.energy=0;terrain.disturb(-10,0,3,.15);
+ for(let i=0;i<100;i++)view.field.step(1/120);
+ assert.ok(Math.abs(terrain.sample(view,-8.8,0))>.0001,'wave passes through former dividing edge');
+ assert.ok(view.field.height.every((h,i)=>view.field.mask[i]||h===0),'masked land stays dry');
+ const before=terrain.sample(view,-10,0);layout.set([...layout.holes,hole(4,-6,0)]);terrain.rebuild(layout);
+ assert.ok(Math.abs(terrain.sample(terrain.views[0],-10,0)-before)<.02,'existing wave retained on edit');
+ layout.set([]);terrain.rebuild(layout);assert.equal(terrain.views.length,0);assert.equal(terrain.group.children.length,1);
+});
+test('moving holes rebuilds floor contacts, supports pool-bottom placement, and leaves no invisible seam collider',()=>{
+ const p=new PendulumScene(R),collision=new CollisionScene(R),layout=new HoleLayout([hole(1,-10,0),hole(2,-8,0)]);
+ p.setTerrain(layout);collision.setTerrain(layout);p.step(1/120);
+ const height=(x,z)=>p.world.castRay(new R.Ray({x,y:2,z},{x:0,y:-1,z:0}),5,true)?.timeOfImpact;
+ assert.ok(Math.abs(height(-9,0)-2.71)<.001,'seam ray reaches the bottom');
+ const f=makeForm('sphere',R),o={...f,mesh:new THREE.Mesh(f.geometry)};o.mesh.position.set(-10,.75,0);
+ assert.ok(Math.abs(collision.supportY(o,-10,0)-.04)<.002);
+ assert.equal(collision.canPlace(o,new THREE.Vector3(-10,.04,0)),true);
+ const count=p.world.colliders.len();for(let i=0;i<4;i++)p.setTerrain(layout);assert.equal(p.world.colliders.len(),count,'old terrain colliders disposed');
+ layout.set([hole(1,-15,0)]);p.setTerrain(layout);collision.setTerrain(layout);p.step(1/120);
+ assert.ok(Math.abs(height(-10,0)-2)<.001,'old hole now supports ground');assert.equal(collision.canPlace(o,o.mesh.position),true);
+ assert.ok(Math.abs(height(-15,0)-2.71)<.001,'new hole is excavated');p.dispose();
+});

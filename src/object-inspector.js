@@ -1,0 +1,65 @@
+import {actionURL} from './message-actions.js';
+import {messageDotPosition} from './message-dot.js';
+import {MessagePlayer} from './object-properties.js';
+import * as THREE from 'three';
+const el=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
+export class ObjectInspector {
+ constructor(root,onChange,getObjects=()=>[]){
+  this.getObjects=getObjects;
+  this.object=null;this.onChange=onChange;this.root=el('div');this.root.className='object-properties';root.append(this.root);
+  this.root.innerHTML='<div class="switch-row"><label for="object-locked">Lock object</label><input id="object-locked" type="checkbox" role="switch"></div><div id="object-materials"></div><details><summary>Hover messages</summary><label for="message-mode">Playback</label><select id="message-mode"><option value="ordered">Ordered</option><option value="random">Random</option><option value="branching">Branching</option></select><div id="message-editor"></div><button type="button" id="add-message">Add message</button></details>';
+  this.lock=this.root.querySelector('#object-locked');this.lock.onchange=()=>{if(this.object){this.object.properties.locked=this.lock.checked;onChange(this.object,'locked');}};
+  this.sliders={};for(const name of ['tone','reflectance','emittance']){
+   const label=el('label',name[0].toUpperCase()+name.slice(1)),output=el('output'),input=el('input');input.type='range';input.min=0;input.max=100;input.step=1;input.id=`object-${name}`;input.setAttribute('aria-label',name[0].toUpperCase()+name.slice(1));label.htmlFor=input.id;label.append(output);this.root.querySelector('#object-materials').append(label,input);this.sliders[name]={input,output};
+   input.oninput=()=>{if(!this.object)return;this.object.properties[name]=+input.value/100;output.textContent=input.value+'%';onChange(this.object,name);};
+  }
+  this.mode=this.root.querySelector('#message-mode');this.mode.onchange=()=>{if(this.object){this.object.properties.messageMode=this.mode.value;this.renderMessages();onChange(this.object,'messages');}};
+  this.editor=this.root.querySelector('#message-editor');this.root.querySelector('#add-message').onclick=()=>{if(!this.object)return;this.object.properties.messages.push({text:'',choices:[]});this.renderMessages();onChange(this.object,'messages');};
+ }
+ select(object){this.object=object;if(!object)return;const p=object.properties;this.lock.checked=p.locked;for(const [key,{input,output}]of Object.entries(this.sliders)){input.value=Math.round(p[key]*100);output.textContent=input.value+'%';}this.mode.value=p.messageMode;this.renderMessages();}
+ renderMessages(){
+  this.editor.replaceChildren();const p=this.object.properties;
+  p.messages.forEach((message,index)=>{
+   const row=el('div');row.className='message-row';const label=el('label',`Message ${index+1}`),text=el('textarea');text.rows=2;text.maxLength=500;text.value=message.text;text.setAttribute('aria-label',`Message ${index+1}`);text.oninput=()=>{message.text=text.value;this.onChange(this.object,'message-text');};
+   const remove=el('button','Remove message');remove.type='button';remove.onclick=()=>{p.messages.splice(index,1);for(const m of p.messages)m.choices=m.choices.filter(c=>c.target!==index).map(c=>({...c,target:c.target>index?c.target-1:c.target}));this.renderMessages();this.onChange(this.object,'messages');};row.append(label,text);
+   if(p.messageMode==='branching'){
+    message.choices.forEach((choice,choiceIndex)=>{
+     const line=el('div');line.className='message-choice';const name=el('input'),target=el('select'),del=el('button','×');name.value=choice.label;name.placeholder='Choice label';name.maxLength=80;name.setAttribute('aria-label',`Choice ${choiceIndex+1} for message ${index+1}`);name.oninput=()=>{choice.label=name.value;this.onChange(this.object,'message-text');};
+     target.setAttribute('aria-label',`Destination for choice ${choiceIndex+1} of message ${index+1}`);p.messages.forEach((m,i)=>target.add(new Option(`Message ${i+1}`,i)));target.value=choice.target;target.onchange=()=>{choice.target=+target.value;this.onChange(this.object,'messages');};del.type='button';del.setAttribute('aria-label','Remove choice');del.onclick=()=>{message.choices.splice(choiceIndex,1);this.renderMessages();this.onChange(this.object,'messages');};line.append(name,target,del);row.append(line);
+    });
+    const add=el('button','Add choice');add.type='button';add.onclick=()=>{message.choices.push({label:'Continue',target:(index+1)%p.messages.length});this.renderMessages();this.onChange(this.object,'messages');};row.append(add);
+   }
+   const action=message.action??{type:'none'},kind=el('select');kind.setAttribute('aria-label',`Action for message ${index+1}`);
+   for(const [value,name]of [['none','No action'],['website','Open website'],['object','Focus object'],['board','Open board']])kind.add(new Option(name,value));kind.value=action.type;
+   kind.onchange=()=>{message.action={type:kind.value,label:'',...(kind.value==='website'?{url:''}:{targetId:null})};this.renderMessages();this.onChange(this.object,'messages');};row.append(el('label','On click'),kind);
+   if(action.type!=='none'){
+    const caption=el('input');caption.placeholder='Button label (optional)';caption.maxLength=80;caption.value=action.label??'';caption.setAttribute('aria-label',`Action label for message ${index+1}`);caption.oninput=()=>{action.label=caption.value;this.onChange(this.object,'message-text');};row.append(caption);
+    if(action.type==='website'){const url=el('input');url.placeholder='https://…';url.value=action.url??'';url.maxLength=2048;url.setAttribute('aria-label',`Website for message ${index+1}`);url.oninput=()=>{action.url=url.value;url.setCustomValidity(url.value&&!actionURL(url.value)?'Use an http or https URL.':'');this.onChange(this.object,'message-text');};row.append(url);}
+    else {const target=el('select');target.setAttribute('aria-label',`Target for message ${index+1}`);target.add(new Option('Choose an object…',''));for(const o of this.getObjects().filter(o=>action.type!=='board'||o.board))target.add(new Option(`${o.board?.title||o.letter?.character||o.type} · ${o.id}`,o.id));target.value=action.targetId??'';target.onchange=()=>{action.targetId=target.value?+target.value:null;this.onChange(this.object,'messages');};row.append(target);}
+   }
+   row.append(remove);this.editor.append(row);
+  });
+ }
+}
+export class ObjectMessages {
+ constructor(stage,onAction=()=>{}){this.onAction=onAction;this.stage=stage;this.dots=new Map();this.player=new MessagePlayer();this.bubble=el('div');this.bubble.id='object-message';this.bubble.hidden=true;this.bubble.setAttribute('role','status');stage.append(this.bubble);this.over=false;this.grace=0;this.bubble.onpointerenter=()=>{this.over=true;};this.bubble.onpointerleave=()=>{this.over=false;this.grace=.18;};}
+ clear(){this.over=false;this.player.enter(null);this.grace=0;this.render();}
+ target(object){if(!this.allowLocked&&object?.properties.locked||!object?.properties.messages.some(m=>m.text.trim()))object=null;if(!object){if(this.player.object&&!this.over&&!this.grace)this.grace=.35;return;}if(object!==this.player.object){this.player.enter(object);this.player.index=object.properties.messages.findIndex(m=>m.text.trim());this.render();}this.grace=0;}
+ leave(){this.grace=.18;}
+ render(){const m=this.player.current();if(!m?.text?.trim()){if(!this.bubble.hidden){this.animation?.cancel();this.animation=this.bubble.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-8px)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:140,fill:'forwards'});this.animation.finished.then(()=>{if(!this.player.object)this.bubble.hidden=true;}).catch(()=>{});}return;}const entering=this.bubble.hidden||!this.bubble.childElementCount;this.animation?.cancel();this.bubble.hidden=false;this.bubble.replaceChildren();if(entering)this.animation=this.bubble.animate([{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:180,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});this.player.object.messageSeen=true;this.bubble.append(el('p',m.text));const a=m.action;if(a&&a.type!=='none'){const website=a.type==='website',button=el(website?'a':'button',a.label||(website?'Visit website ↗':a.type==='board'?'Open board':'Take a closer look'));if(website){const url=actionURL(a.url);if(url){button.href=url;button.target='_blank';button.rel='noopener noreferrer';}else button.setAttribute('aria-disabled','true');}else{button.type='button';button.disabled=!a.targetId;button.onclick=()=>this.onAction(a,this.player.object);}this.bubble.append(button);}if(this.player.object.properties.messageMode==='branching'){
+  const choices=m.choices.length?m.choices:[{label:'Start again',target:0}];for(const choice of choices){const b=el('button',choice.label||'Continue');b.onclick=()=>{this.player.choose(choice.target);this.render();};this.bubble.append(b);}
+ }}
+ updateDots(objects,camera,canvas){
+  const visible=new Set(objects.filter(o=>o.messageSeen&&!o.properties?.locked&&o.properties?.messages?.some(m=>m.text.trim())));
+  for(const [o,dot]of this.dots)if(!visible.has(o)){dot.remove();this.dots.delete(o);}
+  const width=canvas.clientWidth,height=canvas.clientHeight;
+  for(const o of visible){
+   let dot=this.dots.get(o);if(!dot){dot=el('span');dot.className='message-seen-dot';dot.setAttribute('aria-hidden','true');this.stage.append(dot);this.dots.set(o,dot);}
+   const p=messageDotPosition(o.mesh,camera,width,height);
+   dot.hidden=!p||p.x<0||p.x>width||p.y<0||p.y>height;
+   if(p){dot.style.left=p.x+'px';dot.style.top=p.y+'px';}
+
+  }
+ }
+ step(dt,camera,canvas,objects=[]){this.updateDots(objects,camera,canvas);if(this.grace>0&&!this.over){this.grace-=dt;if(this.grace<=0)this.clear();}if(!this.over&&this.player.step(dt))this.render();const o=this.player.object;if(!o)return;const p=o.mesh.localToWorld(new THREE.Vector3(0,o.height/2+.25,0)).project(camera),r=canvas.getBoundingClientRect();this.bubble.style.left=Math.max(12,Math.min(r.width-this.bubble.offsetWidth-12,(p.x+1)*r.width/2-this.bubble.offsetWidth/2))+'px';this.bubble.style.top=Math.max(85,(1-p.y)*r.height/2-this.bubble.offsetHeight-10)+'px';}
+}
