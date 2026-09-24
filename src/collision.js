@@ -1,24 +1,60 @@
 import * as THREE from 'three';
 import {HoleLayout} from './terrain.js';
 import {prepareParts,sweptBounds} from './collision-bounds.js';
+import {SpatialHash} from './spatial-hash.js';
 const zero={x:0,y:0,z:0},identity={x:0,y:0,z:0,w:1};
 export const GRID=.5,POOL={x:3,z:-1.5,width:5};
 export class CollisionScene {
- constructor(R){this.R=R;this.objects=[];this.prepared=new WeakMap();this.setTerrain(new HoleLayout());}
+ constructor(R){this.R=R;this.objects=[];this.prepared=new WeakMap();this.hash=new SpatialHash(1);this.candidates=[];this.extents=new WeakMap();this.setTerrain(new HoleLayout());}
  setTerrain(layout){this.layout=layout;this.terrain=[];const add=(p,h,y)=>this.terrain.push({shape:new this.R.Cuboid(p.w/2,h/2,p.d/2),position:{x:p.x,y,z:p.z},patch:p,top:y+h/2,bounds:new THREE.Box3(new THREE.Vector3(p.x-p.w/2,y-h/2,p.z-p.d/2),new THREE.Vector3(p.x+p.w/2,y+h/2,p.z+p.d/2))});for(const p of layout.physicsGround)add(p,.4,-.2);for(const p of layout.bottom)add(p,.18,-.8);for(const p of layout.walls)add(p,.8,-.4);}
  position(part,position,quaternion){return part.offset.clone().applyQuaternion(quaternion).add(position);}
  bounds(object,position,quaternion=object.mesh.quaternion){return object.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().compose(position,quaternion,new THREE.Vector3(1,1,1)));}
  terrainNear(bounds){return this.terrain.filter(({patch:p})=>bounds.max.x>=p.x-p.w/2&&bounds.min.x<=p.x+p.w/2&&bounds.max.z>=p.z-p.d/2&&bounds.min.z<=p.z+p.d/2);}
+ // Rotation-invariant x/z coverage radius for indexing: the bounding sphere of the
+ // object-space AABB (center offset + half diagonal) around the mesh origin, plus
+ // the .001 margin the neighbor filter expands by. Conservative under any rotation,
+ // so the index never needs re-reading quaternions.
+ indexRadius(object){
+  let radius=this.extents.get(object.geometry);
+  if(radius===undefined){
+   const bb=object.geometry.boundingBox??object.geometry.computeBoundingBox(),center=bb.getCenter(new THREE.Vector3()),size=bb.getSize(new THREE.Vector3());
+   radius=Math.hypot(center.x,center.y,center.z)+.5*Math.hypot(size.x,size.y,size.z)+.001;this.extents.set(object.geometry,radius);
+  }return radius;
+ }
+ // The objects array is aliased and mutated in place by the app (main.js assigns
+ // state.objects to physics.objects, then push/splices it), so add/remove hooks
+ // cannot exist: the index re-derives itself here before every object scan.
+ // Array identity/length drift and shrinkage rebuild; per-object stamps
+ // (geometry reference + x/z position) reindex anything that moved. Rotation and
+ // height never change coverage — indexRadius already bounds them.
+ syncHash(){
+  const hash=this.hash,objects=this.objects;
+  if(hash.source!==objects||hash.count>objects.length){hash.clear();hash.source=objects;}
+  for(const o of objects){
+   const mesh=o.mesh,entry=hash.entries.get(o);
+   if(entry&&entry.geo===o.geometry&&entry.px===mesh.position.x&&entry.pz===mesh.position.z)continue;
+   const radius=this.indexRadius(o),p=mesh.position,indexed=hash.index(o,p.x-radius,p.z-radius,p.x+radius,p.z+radius);
+   indexed.geo=o.geometry;indexed.px=p.x;indexed.pz=p.z;
+  }
+  // A same-length replacement swaps members without moving length or identity;
+  // the count then drifts and this rebuild clears the stale entry in-query.
+  if(hash.count!==objects.length){hash.clear();hash.source=objects;for(const o of objects){const radius=this.indexRadius(o),p=o.mesh.position,indexed=hash.index(o,p.x-radius,p.z-radius,p.x+radius,p.z+radius);indexed.geo=o.geometry;indexed.px=p.x;indexed.pz=p.z;}}
+ }
  partsAt(object,position=object.mesh.position,quaternion=object.mesh.quaternion){
   const old=this.prepared.get(object);if(old&&old.position.equals(position)&&old.rotation.equals(quaternion))return old;
   const parts=prepareParts(object,position,quaternion),bounds=new THREE.Box3();for(const part of parts)bounds.union(part.bounds);
   const result={parts,bounds,position:position.clone(),rotation:quaternion.clone()};this.prepared.set(object,result);return result;
  }
- neighbors(object,bounds,ignore){const found=[];for(const other of this.objects){if(other===object||ignore?.has(other))continue;
-  // Whole-object bounds avoid preparing distant compound shapes at all.
-  if(!this.bounds(other,other.mesh.position).expandByScalar(.001).intersectsBox(bounds))continue;
-  const prepared=this.partsAt(other);for(const part of prepared.parts)if(part.bounds.intersectsBox(bounds))found.push(part);
- }return found;}
+ neighbors(object,bounds,ignore){
+  this.syncHash();
+  const found=[],candidates=this.hash.near(bounds.min.x,bounds.min.z,bounds.max.x,bounds.max.z,this.candidates);
+  for(let i=0;i<candidates.length;i++){const other=candidates[i];if(other===object||ignore?.has(other))continue;
+   // Whole-object bounds avoid preparing distant compound shapes at all.
+   // Exact filter, unchanged from the whole-scene scan: the hash only proposes
+   // candidates, so results stay identical to brute force by construction.
+   if(!this.bounds(other,other.mesh.position).expandByScalar(.001).intersectsBox(bounds))continue;
+   const prepared=this.partsAt(other);for(const part of prepared.parts)if(part.bounds.intersectsBox(bounds))found.push(part);
+  }return found;}
  supportY(object,x,z,quaternion=object.mesh.quaternion){
   const bounds=this.bounds(object,new THREE.Vector3(x,0,z),quaternion),base=-bounds.min.y;
   const overlaps=(p)=>bounds.max.x>p.x-p.w/2+.00001&&bounds.min.x<p.x+p.w/2-.00001&&bounds.max.z>p.z-p.d/2+.00001&&bounds.min.z<p.z+p.d/2-.00001;
