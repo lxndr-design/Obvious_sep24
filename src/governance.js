@@ -53,12 +53,12 @@ export function createGovernance({client, doc = document, members, selfRole, sha
 
   const dialog = doc.createElement('dialog');
   dialog.id = 'governance-dialog';
-  dialog.innerHTML = `<div class="picker-heading"><h2>Room governance</h2><button type="button" aria-label="Close governance">×</button></div><p class="hint" id="governance-role-hint"></p><section id="governance-admin"><div class="section-title">Members</div><div id="governance-members"></div><div class="section-title">Share links</div><div class="button-pair"><button type="button" id="governance-link-editor">Editor link</button><button type="button" id="governance-link-guest">Guest link</button></div><p class="hint">A link admits anyone who opens it with the named role. Kicking and banning still apply.</p><output id="governance-link" hidden></output></section><section id="governance-claim"><div class="section-title">Becoming admin</div><label for="governance-passphrase">Room passphrase</label><input id="governance-passphrase" type="password" autocomplete="off"><div class="button-pair"><button type="button" id="governance-claim">Claim admin</button></div><p class="hint">${CLAIM_HINT}</p></section>`;
+  dialog.innerHTML = `<div class="picker-heading"><h2>Room governance</h2><button type="button" aria-label="Close governance">×</button></div><p class="hint" id="governance-role-hint"></p><section id="governance-admin"><div class="section-title">Members</div><div id="governance-members"></div><div class="section-title">Share links</div><div class="button-pair"><button type="button" id="governance-link-editor">Editor link</button><button type="button" id="governance-link-guest">Guest link</button></div><p class="hint">A link admits anyone who opens it with the named role. Kicking and banning still apply.</p><output id="governance-link" hidden></output></section><section id="governance-claim-section"><div class="section-title">Becoming admin</div><label for="governance-passphrase">Room passphrase</label><input id="governance-passphrase" type="password" autocomplete="off"><div class="button-pair"><button type="button" id="governance-claim">Claim admin</button></div><p class="hint">${CLAIM_HINT}</p></section>`;
   doc.body.append(dialog);
 
   const roleHint = dialog.querySelector('#governance-role-hint');
   const adminSection = dialog.querySelector('#governance-admin');
-  const claimSection = dialog.querySelector('#governance-claim');
+  const claimSection = dialog.querySelector('#governance-claim-section');
   const memberList = dialog.querySelector('#governance-members');
   const linkOut = dialog.querySelector('#governance-link');
   const passphrase = dialog.querySelector('#governance-passphrase');
@@ -122,7 +122,7 @@ export function createGovernance({client, doc = document, members, selfRole, sha
 
   dialog.querySelector('#governance-link-editor').addEventListener('click', () => client.mintLink('editor'));
   dialog.querySelector('#governance-link-guest').addEventListener('click', () => client.mintLink('guest'));
-  dialog.querySelector('#governance-claim').addEventListener('click', () => {
+  dialog.querySelector('button#governance-claim').addEventListener('click', () => {
     const value = passphrase.value;
     if (!value) return;
     passphrase.value = '';
