@@ -9,6 +9,14 @@ export const HOUSEHOLD_MODELS={
  chair:'Chair',
  sofa:'Sofa',
  'coffee-table':'Coffee table',
+ bookshelf:'Bookshelf',
+ dresser:'Dresser',
+ bed:'Bed',
+ 'kitchen-counter':'Kitchen counter',
+ television:'Television',
+ 'floor-lamp':'Floor lamp',
+ fridge:'Fridge',
+ 'washing-machine':'Washing machine',
  rug:'Rug',
 };
 export const HOUSEHOLD_LABELS=Object.fromEntries(Object.entries(HOUSEHOLD_MODELS).map(([model,label])=>[`home-${model}`,label]));
@@ -32,6 +40,20 @@ const COMPONENTS={
  'coffee-table':[B(.9,.04,.5,0,.42,0),
   B(.05,.4,.05,-.4,.2,-.2),B(.05,.4,.05,.4,.2,-.2),
   B(.05,.4,.05,-.4,.2,.2),B(.05,.4,.05,.4,.2,.2)],
+ // Sides, bottom plinth, top, three shelves and a back panel — the front stays
+ // open, so the shelf cavities are reachable and nothing spans them.
+ bookshelf:[B(.03,1.8,.3,-.385,.9,0),B(.03,1.8,.3,.385,.9,0),
+  B(.74,.03,.3,0,.015,0),B(.74,.03,.3,0,1.785,0),
+  B(.74,.025,.26,0,.5,0),B(.74,.025,.26,0,.95,0),B(.74,.025,.26,0,1.4,0),
+  B(.8,1.8,.02,0,.9,-.14)],
+ // Body, three drawer faces on the front, top slab.
+ dresser:[B(1.1,.8,.5,0,.4,0),
+  B(1.0,.2,.03,0,.22,.265),B(1.0,.2,.03,0,.45,.265),B(1.0,.2,.03,0,.68,.265),
+  B(1.14,.04,.54,0,.82,0)],
+ // Body, door face, handle.
+ fridge:[B(.7,1.7,.65,0,.85,0),B(.66,1.64,.03,0,.85,.34),B(.03,.5,.03,.28,1.05,.365)],
+ // Body slab and the circular drum door facing forward.
+ 'washing-machine':[B(.6,.8,.6,0,.4,0),C(.19,.05,0,.5,.315,'z')],
  rug:[B(1.6,.02,1.1,0,.01,0)],
 };
 export function householdComponents(type){return COMPONENTS[type.slice(5)];}
