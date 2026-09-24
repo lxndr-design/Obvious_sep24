@@ -2,3 +2,4 @@ node_modules/
 dist/
 .sites-runtime/
 .DS_Store
+server/data/
