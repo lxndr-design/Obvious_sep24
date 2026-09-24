@@ -1,4 +1,4 @@
-import {actionURL} from './message-actions.js';
+import {actionURL,messageActions} from './message-actions.js';
 import {messageDotPosition} from './message-dot.js';
 import {MessagePlayer} from './object-properties.js';
 import * as THREE from 'three';
@@ -46,7 +46,17 @@ export class ObjectMessages {
  clear(){this.over=false;this.player.enter(null);this.grace=0;this.render();}
  target(object){if(!this.allowLocked&&object?.properties.locked||!object?.properties.messages.some(m=>m.text.trim()))object=null;if(!object){if(this.player.object&&!this.over&&!this.grace)this.grace=.35;return;}if(object!==this.player.object){this.player.enter(object);this.player.index=object.properties.messages.findIndex(m=>m.text.trim());this.render();}this.grace=0;}
  leave(){this.grace=.18;}
- render(){const m=this.player.current();if(!m?.text?.trim()){if(!this.bubble.hidden){this.animation?.cancel();this.animation=this.bubble.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-8px)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:140,fill:'forwards'});this.animation.finished.then(()=>{if(!this.player.object)this.bubble.hidden=true;}).catch(()=>{});}return;}const entering=this.bubble.hidden||!this.bubble.childElementCount;this.animation?.cancel();this.bubble.hidden=false;this.bubble.replaceChildren();if(entering)this.animation=this.bubble.animate([{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:180,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});this.player.object.messageSeen=true;this.bubble.append(el('p',m.text));const a=m.action;if(a&&a.type!=='none'){const website=a.type==='website',button=el(website?'a':'button',a.label||(website?'Visit website ↗':a.type==='board'?'Open board':'Take a closer look'));if(website){const url=actionURL(a.url);if(url){button.href=url;button.target='_blank';button.rel='noopener noreferrer';}else button.setAttribute('aria-disabled','true');}else{button.type='button';button.disabled=!a.targetId;button.onclick=()=>this.onAction(a,this.player.object);}this.bubble.append(button);}if(this.player.object.properties.messageMode==='branching'){
+ render(){const m=this.player.current();if(!m?.text?.trim()){if(!this.bubble.hidden){this.animation?.cancel();this.animation=this.bubble.animate([{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-8px)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:140,fill:'forwards'});this.animation.finished.then(()=>{if(!this.player.object)this.bubble.hidden=true;}).catch(()=>{});}return;}const entering=this.bubble.hidden||!this.bubble.childElementCount;this.animation?.cancel();this.bubble.hidden=false;this.bubble.replaceChildren();if(entering)this.animation=this.bubble.animate([{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:180,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});this.player.object.messageSeen=true;this.bubble.append(el('p',m.text));
+  for(const action of messageActions(m)){
+   if(action.kind==='website'){
+    if(!action.href){const text=el('span',action.label);text.className='message-action-text';this.bubble.append(text);continue;}
+    const link=el('a',action.label),glyph=el('span','↗');glyph.className='message-external-glyph';glyph.setAttribute('aria-hidden','true');
+    link.href=action.href;link.target='_blank';link.rel='noopener noreferrer';link.append(glyph);this.bubble.append(link);
+   }else{
+    const button=el('button',action.label);button.type='button';button.disabled=action.disabled;button.onclick=()=>this.onAction({type:action.kind,targetId:action.targetId},this.player.object);
+    this.bubble.append(button);
+   }
+  }if(this.player.object.properties.messageMode==='branching'){
   const choices=m.choices.length?m.choices:[{label:'Start again',target:0}];for(const choice of choices){const b=el('button',choice.label||'Continue');b.onclick=()=>{this.player.choose(choice.target);this.render();};this.bubble.append(b);}
  }}
  updateDots(objects,camera,canvas){
