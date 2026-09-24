@@ -30,6 +30,7 @@ import {LABELS} from './shapes.js';
 import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
 import {RoomClient,loadIdentity,saveIdentity,STATUS} from './net/client.js';
+import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
@@ -92,6 +93,13 @@ const room=new RoomClient({
  connect:url=>new WebSocket(url),storage:typeof localStorage!=='undefined'?localStorage:null,
  onEvent:onRoomEvent,
 });
+// ---- shared board (Feature 7, U5): op relay, snapshot adoption, LWW ------
+// Editor edits apply locally at once (the optimistic application) and relay as
+// ordered boardOp events; arriving ops re-enter the same creation/placement
+// paths, so every client resolves the board through identical code.
+const boardSync=new BoardReplicator(room.identity.id);
+let syncingRemote=false; // true while applying remote state — never re-announce it
+let messageSyncTimer; // coalesces inspector text keystrokes into one board op
 // Free spot hugging the back edge of the park, clear of solids and other players.
 function findSpawnSpot(minSeparation=1.5){
  const taken=[...entities.values()].map(entry=>entry.entity.group.position);
@@ -124,6 +132,7 @@ function onRoomEvent(event){
    // name survives reloads and reconnects.
    playerName=event.name;playerRole=event.role;
    if(room.identity.name!==event.name){room.identity.name=event.name;saveIdentity(room.storage,room.identity);}
+   syncBoardOnJoin(event.board);
    despawnSelf();spawnEntity({id:event.id,name:event.name},true);
    updatePlayerBadge();notify(`Joined as ${event.name}`);
    break;
@@ -132,10 +141,91 @@ function onRoomEvent(event){
   case 'player-remove': despawnEntity(event.id);break;
   case 'player-move': {const entry=entities.get(event.id);if(entry){entry.entity.setLeaving(false);entry.entity.setPose(event.pose);}}break;
   case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=nameTagLabel(event.player.name,entry.entity.self);updatePlayerBadge();}}break;
+  case 'boardOp': if(boardSync.receive(event.op,event.by,event.revision)==='apply')applyRemoteOp(event.op);break;
+  case 'roleChange': if(event.playerId===room.identity.id){playerRole=event.role;updatePlayerBadge();}break;
   case 'status': case 'lost': updatePlayerBadge();break;
-  case 'error': notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
+  case 'error': if(event.code==='INVALID'||event.code==='FORBIDDEN')boardSync.rejected();notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
   case 'left': despawnSelf();updatePlayerBadge();notify('You left the board');break;
  }
+}
+// ---- shared board plumbing -------------------------------------------------
+function netObjects(){return [...state.objects,...state.holes];}
+function byNetKey(key){return netObjects().find(o=>o.netKey===key)??null;}
+// Announce a local edit to the room. 'add' registers the object's network key
+// (per-identity prefix + local sequence id); 'update'/'remove' only apply to
+// already-registered board members, so simulation-owned scene litter (loose
+// sticks, seed piles) stays local until an editor genuinely touches it.
+function announce(o,type){
+ if(!o||syncingRemote||presentationOnly)return;
+ if(!netObjects().includes(o))return; // deleted between edit and announce
+ if(room.status!==STATUS.ONLINE||playerRole==='guest')return;
+ if(type==='add')o.netKey=o.netKey??localKey(room.identity.id,o.id);
+ else if(!o.netKey)return;
+ const op={type,objectId:o.netKey,...(type==='remove'?{}:{data:{...objectRecord(o),supportKey:o.support?.netKey??null}})};
+ boardSync.local(op);room.sendBoardOp(op);
+}
+// Joining a room: adopt the delivered board, or — on a fresh, empty room —
+// publish the local meadow as the starting board (editors only; guests keep
+// theirs private and read-only).
+function syncBoardOnJoin(snapshotBoard){
+ if(!snapshotBoard)return;
+ const entries=Object.entries(snapshotBoard.objects??{});
+ if(!entries.length){
+  if(playerRole!=='guest'&&!presentationOnly)for(const o of netObjects())if(LABELS[o.type]||o.type==='pool')announce(o,'add');
+  return;
+ }
+ syncingRemote=true;
+ try{
+  boardSync.adoptSnapshot();
+  const keys=new Set(entries.map(([key])=>key));
+  for(const o of netObjects())if(o.netKey&&!keys.has(o.netKey))remove(o,true);
+  const created=[];
+  for(const [key,record] of entries){let o=byNetKey(key);if(!o){o=buildFromRecord(key,record);if(o)created.push([o,record]);}}
+  for(const [o,record] of created)applyRecord(o,record);
+  refreshJoins();
+ }finally{syncingRemote=false;}
+}
+// Create a scene object from a record delivered under network key `key` — the
+// same record-driven hydration path spaces use, so remote results match a
+// loaded space exactly. Support links resolve afterwards in applyRecord.
+function buildFromRecord(key,record){
+ const o=record.type==='pool'?addHole([record.position[0],record.position[2]],record.size??record.gridSize??2):addObject(record.type,null,!!record.hanging,record.cableLength??5,null,0,record.gridSize,record);
+ if(o){o.netKey=key;o.support=null;}
+ return o;
+}
+// Bring an existing scene object to the state a delivered record describes.
+// The record's numeric ids are the creator's local ids; they remap through the
+// creator's network-key prefix. Uncreatable records degrade to a notice.
+function applyRecord(o,record){
+ const prefix=keyPrefix(o.netKey),map=new Map();
+ for(const t of netObjects())if(typeof t.netKey==='string'&&t.netKey.startsWith(prefix+'-'))map.set(Number(t.netKey.slice(prefix.length+1)),t.id);
+ map.set(record.id,o.id);
+ o.hanging=!!record.hanging;o.cableLength=record.cableLength??5;o.signSlot=record.signSlot??null;
+ o.anchor=record.anchor?new THREE.Vector3().fromArray(record.anchor):null;
+ o.mesh.position.fromArray(record.position);o.mesh.quaternion.fromArray(record.rotation).normalize();
+ o.support=record.supportKey?byNetKey(record.supportKey):null;
+ o.properties={...properties(),...structuredClone(record.properties??{})};
+ remapActions(o.properties,map);
+ applyMaterialProperties(o);
+ if(o.grandmaForms)setGrandmaPose(o,!!record.seated,physics);
+ decorateSign(o);decorateBoard(o);
+ pendulums.syncPose(o);updateCable(o);renderer.shadowMap.needsUpdate=true;
+ if(o.type==='pool')refreshHoles();
+ if(state.selected===o)select(o);
+}
+// A delivered op enters the scene through the same paths local edits use.
+function applyRemoteOp(op){
+ syncingRemote=true;
+ try{
+  if(op.type==='remove'){const o=byNetKey(op.objectId);if(o)remove(o,true);}
+  else{
+   let o=byNetKey(op.objectId);
+   if(o&&o.type!==(op.data?.type??o.type)){remove(o,true);o=null;} // form changed → rebuild
+   if(!o)o=buildFromRecord(op.objectId,op.data);
+   if(o)applyRecord(o,op.data);else notify('A shared change could not be applied here.');
+  }
+  refreshJoins();
+ }finally{syncingRemote=false;}
 }
 function updatePlayerBadge(){
  const name=$('player-name'),toggle=$('leave-board'),edit=$('rename-player');
@@ -221,7 +311,7 @@ function addHole(position=null,size=2){
  }
  if(!position||!canPlaceHole(size,...position)){notify('No clear ground for this pool.');return null;}
  const geometry=new THREE.BoxGeometry(size,.012,size),mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));geometry.computeBoundingBox();mesh.position.set(position[0],.006,position[1]);
- const o={id:++state.sequence,type:'pool',gridSize:size,size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};o.properties=properties();o.primaryMaterial=white.clone();mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();return o;
+ const o={id:++state.sequence,type:'pool',gridSize:size,size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};o.properties=properties();o.primaryMaterial=white.clone();mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();announce(o,'add');return o;
 }
 function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o)))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(o.properties?.locked)return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
@@ -233,7 +323,7 @@ function addObject(type,position=null,hanging=false,cableLength=5,placement=null
  if(record){mesh.position.fromArray(record.position);mesh.quaternion.fromArray(record.rotation).normalize();o.anchor=record.anchor?new THREE.Vector3().fromArray(record.anchor):null;o.properties={...properties(),...structuredClone(record.properties)};if(o.sign&&record.sign)o.sign={...o.sign,...record.sign};o.signSlot=record.signSlot;}
  else if(position){mesh.position.set(position[0],y,position[1]);if(!hanging){mesh.position.y=placement?.position.y??physics.supportY(o,position[0],position[1]);o.support=placement?.support??null;}if(!physics.canPlace(o,mesh.position)){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();return null;}}
  else {let found=false;const centerX=Math.round(controls.target.x/GRID)*GRID,centerZ=Math.round(controls.target.z/GRID)*GRID;for(let z=centerZ+3.5;z>=centerZ-4.5&&!found;z-=GRID)for(let x=centerX-5.5;x<=centerX+5.5&&!found;x+=GRID){mesh.position.set(x,y,z);mesh.position.y=hanging?y:physics.supportY(o,x,z);if(physics.canPlace(o,mesh.position))found=true;}if(!found){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();notify('No clear floor space for this form.');return null;}}
- decorateSign(o);decorateBoard(o);decoratePhoto(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
+ decorateSign(o);decorateBoard(o);decoratePhoto(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}announce(o,'add');return o;}
 let noticeTimer;
 function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
 function select(o){if(presentationOnly)o=null;const changed=state.selected!==o;state.selected=o;
@@ -251,10 +341,11 @@ function setHang(o,hanging,length=o.cableLength){
  position.y=hanging?CEILING_HEIGHT-length-o.height/2:physics.supportY(o,position.x,position.z,rotation);
  if(!physics.canTravel(o,position)||!physics.canPlace(o,position,rotation)){if(joining(o))refreshJoins();notify('There is another form in the way. Move it clear first.');select(o);return false;}
  o.support=null;o.hanging=hanging;o.cableLength=length;o.anchor=hanging?anchor:null;o.mesh.position.copy(position);o.mesh.quaternion.copy(rotation);
- pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
+ pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);announce(o,'update');notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o,force=false){
- if(!o||!force&&!canManipulate(o,stacks.members(o)))return;if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);disposePhoto(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
+ if(!o||!force&&!canManipulate(o,stacks.members(o)))return;
+ announce(o,'remove');if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);disposePhoto(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
@@ -375,7 +466,7 @@ function moveScenePointer(event){
  state.drag.blocked=!moved;
  if(moved)dragGhost.hide();else if(mode!=='pool'){state.drag.ghostY=mode==='anchor'?o.mesh.position.y:stacks.supports(o,target.x,target.z)[0].y;dragGhost.show(new THREE.Vector3(rawTarget.x-(mode==='anchor'?o.anchor.x:o.mesh.position.x),state.drag.ghostY-o.mesh.position.y,rawTarget.z-(mode==='anchor'?o.anchor.z:o.mesh.position.z)));}
 
- if(moved){const placed=mode==='anchor'?o.anchor:o.mesh.position;gridCursor.position.set(placed.x,0,placed.z);}
+ if(moved){const placed=mode==='anchor'?o.anchor:o.mesh.position;gridCursor.position.set(placed.x,0,placed.z);state.drag.dirty=true;}
 if(mode==='floor'&&moved)trackSample(state.drag.samples,o,event.timeStamp);
  gridCursor.material.color.set(moved?0x57794a:0x995548);notify(moved?'Grid locked · release to place · Esc to cancel':'Move the ghost to a clear spot');updateCable(o);select(o);
 }
@@ -389,16 +480,19 @@ function applySettle(o,now){
  return plan?plan.to:null;
 }
 function endDrag(e,cancel=false){
- if(!state.drag||e&&e.pointerId!==state.drag.id)return;const {id,object,mode}=state.drag;
- // Planned before cleanup (it reads the drag's samples), applied after: the
- // ghost and cursor reset first, then the settle eases to its landing cell.
- const settle=mode==='floor'&&!cancel&&e?applySettle(object,e.timeStamp):null;
+if(!state.drag||e&&e.pointerId!==state.drag.id)return;const {id,object,mode,dirty}=state.drag;
+// Planned before cleanup (it reads the drag's samples), applied after: the
+// ghost and cursor reset first, then the settle eases to its landing cell.
+const settle=mode==='floor'&&!cancel&&e?applySettle(object,e.timeStamp):null;
  if(mode==='seed'){if(cancel)sling.cancel();else sling.release();slingGuide.update(sling);notify('');}
  if(mode==='pull'){pendulums.releasePull();notify('Released · gravity takes over');}
  if(mode==='anchor'){pendulums.endAnchor(object);notify('Anchor placed · pull the hanging form to swing');}
  if(mode==='avatar'&&!cancel&&selfEntity)room.setPose(selfEntity.pose());
- dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active&&!presentationOnly;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
- if(settle)moveGround(object,settle,true);
+dragGhost.end();state.drag=null;if(joining(object))refreshJoins();gridCursor.visible=false;controls.enabled=!signFocus.active&&!presentationOnly;canvas.style.cursor=state.mouseMode==='seed'?'crosshair':'default';if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
+if(settle)moveGround(object,settle,true);
+// Announce after the settle lands so the relayed record carries the final
+// resting position, not the mid-drag one.
+if(!cancel&&dirty&&object&&(mode==='floor'||mode==='pool'||mode==='anchor'))announce(object,'update');
 }
 function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.mode==='avatar'&&selfEntity){selfEntity.group.position.copy(drag.previous);room.setPose(selfEntity.pose());}if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 bindDragPointer(window,canvas,{getDrag:()=>state.drag,move:moveScenePointer,end:endDrag,cancel:cancelDrag});window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
@@ -406,7 +500,7 @@ function placeForm(o,x,z){
  if(!canManipulate(o,stacks.members(o))||presentationOnly)return false;
  const target=new THREE.Vector3(Math.round(x/GRID)*GRID,o.hanging?CEILING_HEIGHT:o.mesh.position.y,Math.round(z/GRID)*GRID);
  const result=o.type==='pool'?moveHole(o,target):o.hanging?pendulums.moveAnchor(o,target,physics):moveGround(o,target);
- updateCable(o);select(o);return result;
+ if(result)announce(o,'update');updateCable(o);select(o);return result;
 }
 canvas.addEventListener('keydown',e=>{
  if(signFocus.active){if(e.key==='Escape')signFocus.exit();return;}if(presentationOnly)return;const o=state.selected;if(e.key==='Escape'){cancelDrag();select(null);return;}if(!o)return;
@@ -414,7 +508,7 @@ canvas.addEventListener('keydown',e=>{
  if(dirs[e.key]){e.preventDefault();const [x,z]=dirs[e.key],p=o.hanging?o.anchor:o.mesh.position;if(!placeForm(o,p.x+x,p.z+z))notify('Occupied — choose a clear path');}
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
 });
-function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o))||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');}updateCable(o);select(o);}
+function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o))||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');announce(o,'update');}updateCable(o);select(o);}
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add,null,false,5,null,0,+button.dataset.gridSize||2);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
 const pickerTypes={plant:'plant-snake-medium',table:'table-round-full',grandma:'grandma-skirt-bun',sign:'sign-arrow-text',home:'chair'};
@@ -551,6 +645,9 @@ const inspector=new ObjectInspector($('selection-controls'),(o,kind)=>{
  if(kind==='locked'){cancelDrag();messages.clear();select(o);}
  else if(['tone','reflectance','emittance'].includes(kind)){presentation.clear(o);applyMaterialProperties(o);renderer.shadowMap.needsUpdate=true;}
  else {messages.player.index=0;messages.render();}
+ // Relay property edits; text keystrokes coalesce into one op after a pause.
+ if(kind==='message-text'){clearTimeout(messageSyncTimer);messageSyncTimer=setTimeout(()=>announce(o,'update'),600);}
+ else announce(o,'update');
 },()=>[...state.objects,...state.holes]);
 $('object-list').addEventListener('change',e=>select([...state.objects,...state.holes].find(o=>o.id===+e.target.value)??null));
 function mouseMode(mode){cancelDrag();cancelToolbarDrag();state.mouseMode=mode;ecology.feedingMode=mode==='seed';$('mode-drag').setAttribute('aria-pressed',String(mode==='drag'));$('mode-seed').setAttribute('aria-pressed',String(mode==='seed'));$('seed-count').hidden=mode!=='seed';canvas.style.cursor=mode==='seed'?'crosshair':'default';messages.clear();}
