@@ -28,6 +28,10 @@ export class Ecology {
   this.strands=[];this.grassClusters=[];this.loose=[];this.piles=[];this.birdViews=new Map();this.bathViews=new Map();this.habitats=[];this.colony=new BirdColony();this.ducks=new DuckFlock();this.duckViews=new Map();this.waterContacts=new BirdWaterContacts();this.random=seededRandom(731);this.accumulator=0;this.pointer=null;this.pointerScreen=null;this.water=null;this.lastLeafRead=0;this.clock=0;
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
   this.colony.onSplash=(position,site)=>{if(site.shore){const view=this.terrain?.at(position.x,position.z);if(view){const uv=this.terrain.uv(view,position);view.field.disturb(uv.u,uv.v,-.45,.075);view.field.emit(uv.u,uv.v,.8);}}else this.bathViews.get(site.object)?.splash(position);};
+  // Aerial avoidance: solid-form bounds from the collision broad phase. The
+  // hash proposes candidates, exact world AABBs answer; hanging forms and
+  // near-ground decals never block flight. Read-only over collision state.
+  this.colony.avoidance=(x0,z0,x1,z1,exclude)=>this.flightObstacles(x0,z0,x1,z1,exclude);
   this.sticks=new StickCollection(()=>this.collision.objects);
   this.grandmas=new GrandmaFeeding(seededRandom(934));this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
  }
@@ -160,6 +164,17 @@ export class Ecology {
    for(const bird of this.colony.birds)if(attached(bird))this.colony.depart(bird,center);
    for(const duck of this.ducks.ducks)if(attached(duck))this.ducks.departOne(duck,center);
   }
+ }
+ flightObstacles(x0,z0,x1,z1,exclude){
+  const scene=this.collision;scene.syncHash();
+  const obstacles=[],candidates=scene.hash.near(x0,z0,x1,z1,scene.candidates);
+  for(const o of candidates){
+   if(o===exclude||o.hanging)continue;
+   const bounds=scene.bounds(o,o.mesh.position);
+   if(bounds.max.y<.2)continue;
+   obstacles.push({minX:bounds.min.x,minY:bounds.min.y,minZ:bounds.min.z,maxX:bounds.max.x,maxY:bounds.max.y,maxZ:bounds.max.z});
+  }
+  return obstacles;
  }
  clearSpot(position,site,bird){
   const scale=bird?.scale??1;
