@@ -29,19 +29,39 @@ test('valid main->sim messages pass validation',()=>{
  validateMessage({type:'spawn',bodies:[{...BODY,id:3,behavior:'bounce'}]});
 });
 
-test('poses message pins buffer lengths to count',()=>{
+test('poses buffers hold at least count entries — pooled capacity is legal',()=>{
  const count=3;
+ // Exactly-sized frames (tests, fakes) pass…
  validateMessage(poseFrame(count));
- const wrongPositions={...poseFrame(count),positions:new ArrayBuffer(4)};
- assert.throws(()=>validateMessage(wrongPositions),/positions/);
- const wrongSleep={...poseFrame(count),sleep:new Uint8Array(count+1)};
- assert.throws(()=>validateMessage(wrongSleep),/sleep/);
- // ids ride per frame — wrong type or count is a schema violation, and the
- // consumer has no other way to map poses back to bodies.
+ // …and so do the capacity-sized pooled buffers the live worker ships:
+ // whole pool sets transferred zero-copy, consumer reads only the first
+ // count entries.
+ const capacity=256;
+ const pooled={
+  type:'poses',frame:7,count,
+  positions:new ArrayBuffer(capacity*POSITION_STRIDE*4),
+  quaternions:new ArrayBuffer(capacity*QUATERNION_STRIDE*4),
+  sleep:new Uint8Array(capacity),
+  ids:new Uint32Array(capacity),
+ };
+ validateMessage(pooled);
+ validateMessage({...pooled,count:0}); // a fully-culled field still ships a pose frame
+ // Under-sized buffers would let the consumer read past the data — rejected
+ // for every field, as is stride misalignment on the float buffers.
+ const short={...poseFrame(count),positions:new ArrayBuffer(4)};
+ assert.throws(()=>validateMessage(short),/positions/);
+ const misaligned={...poseFrame(count),positions:new ArrayBuffer(count*POSITION_STRIDE*4+2)};
+ assert.throws(()=>validateMessage(misaligned),/positions/);
+ const shortQuat={...poseFrame(count),quaternions:new ArrayBuffer(8)};
+ assert.throws(()=>validateMessage(shortQuat),/quaternions/);
+ const shortSleep={...poseFrame(count),sleep:new Uint8Array(count-1)};
+ assert.throws(()=>validateMessage(shortSleep),/sleep/);
+ // ids ride per frame — wrong type or too-short length is a schema violation,
+ // and the consumer has no other way to map poses back to bodies.
  const wrongIdsType={...poseFrame(count),ids:[1,2,3]};
  assert.throws(()=>validateMessage(wrongIdsType),/ids/);
- const wrongIdsLength={...poseFrame(count),ids:new Uint32Array(count+1)};
- assert.throws(()=>validateMessage(wrongIdsLength),/ids/);
+ const shortIds={...poseFrame(count),ids:new Uint32Array(count-1)};
+ assert.throws(()=>validateMessage(shortIds),/ids/);
 });
 
 test('return message pins buffer types for the ping-pong pool',()=>{

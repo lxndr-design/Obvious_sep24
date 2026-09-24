@@ -74,14 +74,20 @@ const CHECKS={
   const{frame,count,positions,quaternions,sleep,ids}=msg;
   if(!uint(frame))fail('poses.frame must be a non-negative integer');
   if(!uint(count))fail('poses.count must be a non-negative integer');
+  // The worker ships whole pooled buffers (capacity-sized, zero-copy, reused
+  // via return), so buffers may exceed count — the consumer reads only the
+  // first count entries. What must never happen is a buffer too small for
+  // count entries, or one that breaks stride alignment.
   const posBytes=count*POSITION_STRIDE*BYTES_PER_FLOAT;
   const quatBytes=count*QUATERNION_STRIDE*BYTES_PER_FLOAT;
-  if(!(positions instanceof ArrayBuffer)||positions.byteLength!==posBytes)fail(`poses.positions must be an ArrayBuffer of ${posBytes} bytes`);
-  if(!(quaternions instanceof ArrayBuffer)||quaternions.byteLength!==quatBytes)fail(`poses.quaternions must be an ArrayBuffer of ${quatBytes} bytes`);
-  if(!(sleep instanceof Uint8Array)||sleep.length!==count)fail(`poses.sleep must be a Uint8Array of ${count} bytes`);
+  if(!(positions instanceof ArrayBuffer)||positions.byteLength<posBytes||positions.byteLength%12!==0)
+   fail(`poses.positions must be an ArrayBuffer of at least ${posBytes} bytes (stride-aligned)`);
+  if(!(quaternions instanceof ArrayBuffer)||quaternions.byteLength<quatBytes||quaternions.byteLength%16!==0)
+   fail(`poses.quaternions must be an ArrayBuffer of at least ${quatBytes} bytes (stride-aligned)`);
+  if(!(sleep instanceof Uint8Array)||sleep.length<count)fail(`poses.sleep must be a Uint8Array of at least ${count} entries`);
   // ids travel per frame: spawn/despawn reshuffle the worker's body order,
   // so the consumer maps by id, never by index assumption.
-  if(!(ids instanceof Uint32Array)||ids.length!==count)fail(`poses.ids must be a Uint32Array of ${count} entries`);
+  if(!(ids instanceof Uint32Array)||ids.length<count)fail(`poses.ids must be a Uint32Array of at least ${count} entries`);
  },
  ready(){},
  error(msg){
