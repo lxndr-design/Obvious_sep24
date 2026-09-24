@@ -47,7 +47,11 @@ test('splash entry wires cursor physics: controller, capture, cancel and context
  assert.match(entry,/setPointerCapture/); // drags survive leaving the canvas
  assert.match(entry,/contextmenu/);
  assert.match(entry,/preventDefault/); // right-drag repels, no menu
- assert.match(entry,/splash-stats/); // minimal stats readout for the perf evidence
+ // The editor's stats HUD is the perf readout; the entry adds only the DnD
+ // ghost preview beside the editor surface.
+ assert.doesNotMatch(entry,/splash-stats/);
+ assert.match(entry,/installGhostPreview/);
+ assert.match(entry,/createEditor/);
 });
 
 test('index.html keeps the birdbath entry and only gains the splash cross-link',()=>{
