@@ -1,3 +1,5 @@
+import {makeLetter} from './letters.js';
+import {makeBoard} from './boards.js';
 import {makeSign,SIGN_LABELS} from './signs.js';
 import {makeGrandma,GRANDMA_LABELS} from './grandma.js';
 import * as THREE from 'three';
@@ -6,8 +8,9 @@ import {ConvexGeometry} from 'three/addons/geometries/ConvexGeometry.js';
 import {makeHedge} from './hedges.js';
 import {stackingProfile} from './stacking.js';
 import {FURNISHING_LABELS,makeFurnishing} from './furnishings.js';
-export const LABELS={box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...FURNISHING_LABELS,...SIGN_LABELS};
-export function makeForm(type,R){
+export const LABELS={letter:'Letter',board:'Board',box:'Block',sphere:'Sphere',cylinder:'Column',arch:'Arch',pebble:'Pebble',hedge:'Small hedge',stick:'Stick',grandma:'Grandma',...GRANDMA_LABELS,...FURNISHING_LABELS,...SIGN_LABELS};
+export function makeForm(type,R,options={}){
+ if(type==='letter'||type==='board'){const form=type==='letter'?makeLetter(R,options.letter??undefined):makeBoard(R,options.board??undefined);return {...form,stacking:stackingProfile(type,form)};}
  if(Object.hasOwn(SIGN_LABELS,type)){const form=makeSign(type,R);return {...form,stacking:stackingProfile(type,form)};}
  if(type==='grandma'||type.startsWith('grandma-'))return makeGrandma(R,type);
  if(type==='stick'){const form=makeStick(R);return {...form,stacking:stackingProfile(type,form)};}

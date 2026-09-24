@@ -2,8 +2,8 @@ import {makeForm,LABELS} from './shapes.js';
 import {scaleForm} from './form-scale.js';
 export const SIZED_FORMS=new Set(Object.keys(LABELS));
 export function objectSizeLabel(o){const name=o.type==='pool'?'Pool':o.type==='hedge'?'Hedge':LABELS[o.type].replace(/ · (small|medium|large|½|1\/1)$/i,'');const size=['','Small','Medium','Large'][o.gridSize??o.size];return size?`${name} · ${size}`:name;}
-export function makeSizedForm(type,R,gridSize=2){
- const form=makeForm(type,R);if(gridSize==null)return form;
+export function makeSizedForm(type,R,gridSize=2,options={}){
+ const form=makeForm(type,R,options);if(gridSize==null)return form;
  if(![1,2,3].includes(gridSize))throw Error('Choose Small, Medium or Large.');
  const b=form.geometry.boundingBox;
  // Sizes define a common envelope; narrow shapes retain their proportions.

@@ -1,5 +1,7 @@
+import {validAction,actionURL} from './message-actions.js';
+import {validLetter} from './letters.js';
 const KEY='eternity.spaces.v1';
-export const objectRecord=o=>({id:o.id,type:o.type,gridSize:o.gridSize??null,size:o.size??null,position:o.mesh.position.toArray(),rotation:o.mesh.quaternion.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,properties:structuredClone(o.properties),support:o.support?.id??null,seated:!!o.seated,sign:o.sign?structuredClone(o.sign):null,signSlot:o.signSlot??null});
+export const objectRecord=o=>({id:o.id,type:o.type,gridSize:o.gridSize??null,size:o.size??null,position:o.mesh.position.toArray(),rotation:o.mesh.quaternion.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,properties:structuredClone(o.properties),support:o.support?.id??null,seated:!!o.seated,sign:o.sign?structuredClone(o.sign):null,signSlot:o.signSlot??null,letter:o.letter?{...o.letter}:null,board:o.board?{...o.board}:null});
 export function validateSpace(value,types){
  if(!value||value.version!==1||!Array.isArray(value.objects)||value.objects.length>40)throw Error('This is not a valid Eternity space.');
  const finite=(a,n)=>Array.isArray(a)&&a.length===n&&a.every(v=>Number.isFinite(v)&&Math.abs(v)<10000),ids=new Set();
@@ -10,6 +12,9 @@ export function validateSpace(value,types){
    if(p.messageMode!==undefined&&!['ordered','random','branching'].includes(p.messageMode))throw Error('Invalid message mode.');
    if(p.messages!==undefined&&(!Array.isArray(p.messages)||p.messages.length>100||p.messages.some(m=>!m||typeof m.text!=='string'||m.text.length>500||!Array.isArray(m.choices)||m.choices.some(c=>!c||typeof c.label!=='string'||!Number.isInteger(c.target)))))throw Error('Invalid messages.');
   }
+  if(o.type==='letter'&&o.letter&&!validLetter(o.letter))throw Error('Invalid letter.');
+  if(o.type==='board'&&o.board&&(typeof o.board.title!=='string'||o.board.title.length>80||!actionURL(o.board.url)))throw Error('Invalid board.');
+  for(const m of p?.messages??[])if(m.action&&!validAction(m.action))throw Error('Invalid message action.');
   if(o.sign&&(!['arrow','plaque','pennant'].includes(o.sign.variant)||!['text','icon'].includes(o.sign.mode)||typeof o.sign.label!=='string'||o.sign.label.length>32||!['left','right'].includes(o.sign.arrow)||!Number.isFinite(o.sign.width)))throw Error('Invalid sign.');
  }
 

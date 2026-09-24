@@ -1,3 +1,7 @@
+import {BoardView,decorateBoard,disposeBoard} from './boards.js';
+import {ElementInspector} from './element-inspector.js';
+import {replaceForm} from './replace-form.js';
+import {actionURL,remapActions} from './message-actions.js';
 import {DragGrid} from './drag-grid.js';
 import {makeSizedForm,installSizeMenu,objectSizeLabel} from './object-size.js';
 import {objectRecord,validateSpace,installSpaces} from './spaces.js';
@@ -127,7 +131,7 @@ function addHole(position=null,size=2){
 }
 function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o)))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
 function moveHole(o,target){if(o.properties?.locked)return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
-function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize);const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];mesh.userData.object=o;
+function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize,record??{});const mesh=new THREE.Mesh(form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];if(o.board)o.properties.messages=[{text:o.board.title,choices:[],action:{type:'board',targetId:o.id,label:'Open board'}}];mesh.userData.object=o;
  if(record?.seated)setGrandmaPose(o,true,physics);
  if(isSign(o)&&placement)applySignPlacement(o,placement);
  if(o.grandmaForms&&placement)applyGrandmaPlacement(o,placement,physics);
@@ -135,12 +139,12 @@ function addObject(type,position=null,hanging=false,cableLength=5,placement=null
  if(record){mesh.position.fromArray(record.position);mesh.quaternion.fromArray(record.rotation).normalize();o.anchor=record.anchor?new THREE.Vector3().fromArray(record.anchor):null;o.properties={...properties(),...structuredClone(record.properties)};if(o.sign&&record.sign)o.sign={...o.sign,...record.sign};o.signSlot=record.signSlot;}
  else if(position){mesh.position.set(position[0],y,position[1]);if(!hanging){mesh.position.y=placement?.position.y??physics.supportY(o,position[0],position[1]);o.support=placement?.support??null;}if(!physics.canPlace(o,mesh.position)){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();return null;}}
  else {let found=false;const centerX=Math.round(controls.target.x/GRID)*GRID,centerZ=Math.round(controls.target.z/GRID)*GRID;for(let z=centerZ+3.5;z>=centerZ-4.5&&!found;z-=GRID)for(let x=centerX-5.5;x<=centerX+5.5&&!found;x+=GRID){mesh.position.set(x,y,z);mesh.position.y=hanging?y:physics.supportY(o,x,z);if(physics.canPlace(o,mesh.position))found=true;}if(!found){disposeGrandma(o);form.geometry.dispose();mesh.material.dispose();notify('No clear floor space for this form.');return null;}}
- decorateSign(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
+ decorateSign(o);decorateBoard(o);applyMaterialProperties(o);objectGroup.add(mesh);state.objects.push(o);pendulums.add(o);createCable(o);o.debug=new THREE.Mesh(o.geometry,new THREE.MeshBasicMaterial({color:0x597c46,wireframe:true,transparent:true,opacity:.6,depthTest:false}));o.debug.visible=state.debug;o.debug.renderOrder=8;mesh.add(o.debug);if(!hydrating&&joining(o)&&!refreshJoins()){remove(o);notify('The connection needs clear space.');return null;}return o;}
 let noticeTimer;
 function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('notice').hidden=!text;if(text)noticeTimer=setTimeout(()=>{$('notice').hidden=true;},3500);}
 function select(o){if(presentationOnly)o=null;const changed=state.selected!==o;state.selected=o;
  const list=$('object-list');list.replaceChildren(new Option('Select object',''),...[...state.objects,...state.holes].map(item=>new Option(`${objectSizeLabel(item)} ${item.id}${item.properties.locked?' · locked':''}`,item.id)));list.value=o?.id??'';
- if(changed||!o)inspector.select(o);signInspector.select(o);
+ if(changed||!o)inspector.select(o);signInspector.select(o);elementInspector.select(o);
  for(const id of ['rotate','remove','suspended','cable'])$(id).disabled=!!o&&!canManipulate(o,stacks.members(o));for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging&&!form.properties.locked;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=objectSizeLabel(o);$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool'||isSign(o)||o.type==='sign-pole';$('rotate').hidden=o.type==='pool'||isSign(o)||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
 function setHang(o,hanging,length=o.cableLength){
  if(o.type==='pool'||isSign(o)||o.type==='sign-pole'||!canManipulate(o,stacks.members(o)))return false;
@@ -156,11 +160,11 @@ function setHang(o,hanging,length=o.cableLength){
  pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o,force=false){
- if(!o||!force&&!canManipulate(o,stacks.members(o)))return;if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
+ if(!o||!force&&!canManipulate(o,stacks.members(o)))return;if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
 }
-function reset(){signFocus.exit(true);hoveredSign=null;messageHops.reset();hopPuffs.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
+function reset(){boardView.close();signFocus.exit(true);hoveredSign=null;messageHops.reset();hopPuffs.reset();windTrails.reset();cancelToolbarDrag();cancelDrag();for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
  for(const position of DEFAULT_PARK.pools)addHole(position,2);
  const fountain=addObject('fountain',DEFAULT_PARK.fountain);if(fountain)fountain.properties.messages=[{text:'drag me',choices:[]}];
  for(const bench of DEFAULT_PARK.benches)addObject('bench',bench.position,false,5,null,bench.rotation);
@@ -207,7 +211,7 @@ function seedDropPoint(spread=0){
  return p;
 }
 canvas.addEventListener('pointerdown',event=>{
- if(presentationOnly)return;if(event.button!==0||activePointers.size>1)return;if(signFocus.active){ray(event);if(!pick())signFocus.exit();return;}canvas.focus({preventScroll:true});ray(event);trackPointer(event);const picked=pick();
+ if(boardView.active)return;if(event.button!==0||activePointers.size>1)return;if(signFocus.active){ray(event);if(!pick())signFocus.exit();return;}if(presentationOnly)return;canvas.focus({preventScroll:true});ray(event);trackPointer(event);const picked=pick();
  messages.clear();
  if(state.mouseMode==='seed'){const p=seedDropPoint();if(p)ecology.scatterFood(p);state.drag={mode:'feed',id:event.pointerId,last:performance.now(),lastPoint:p?.clone()};canvas.setPointerCapture(event.pointerId);controls.enabled=false;return;}
  if(picked?.locked)return;
@@ -270,7 +274,7 @@ function placeForm(o,x,z){
  updateCable(o);select(o);return result;
 }
 canvas.addEventListener('keydown',e=>{
- if(presentationOnly)return;if(signFocus.active){if(e.key==='Escape')signFocus.exit();return;}const o=state.selected;if(e.key==='Escape'){cancelDrag();select(null);return;}if(!o)return;
+ if(signFocus.active){if(e.key==='Escape')signFocus.exit();return;}if(presentationOnly)return;const o=state.selected;if(e.key==='Escape'){cancelDrag();select(null);return;}if(!o)return;
  const dirs={ArrowLeft:[-GRID,0],ArrowRight:[GRID,0],ArrowUp:[0,-GRID],ArrowDown:[0,GRID]};
  if(dirs[e.key]){e.preventDefault();const [x,z]=dirs[e.key],p=o.hanging?o.anchor:o.mesh.position;if(!placeForm(o,p.x+x,p.z+z))notify('Occupied — choose a clear path');}
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
@@ -374,13 +378,38 @@ window.addEventListener('pointercancel',event=>finishToolbarDrag(event,true),tru
 toolbar.addEventListener('lostpointercapture',event=>{if(toolbarDrag?.id===event.pointerId)cancelToolbarDrag();});
 window.addEventListener('blur',cancelToolbarDrag);
 window.addEventListener('keydown',event=>{if(event.key==='Escape'&&toolbarDrag){cancelToolbarDrag();event.preventDefault();event.stopPropagation();}},true);
-const messages=new ObjectMessages($('stage'));messages.allowLocked=presentationOnly;
-const signInspector=new SignInspector($('selection-controls'),o=>{if(o===state.selected)rotateSelected();});
+let boardControlsEnabled=false;
+const boardView=new BoardView(()=>{cancelDrag();cancelToolbarDrag();messages.clear();boardControlsEnabled=controls.enabled;controls.enabled=false;},()=>{controls.enabled=boardControlsEnabled&&!presentationOnly&&!signFocus.active;canvas.focus({preventScroll:true});});
+const exitView=document.createElement('button');exitView.id='exit-view';exitView.type='button';exitView.textContent='×';exitView.title='Exit view';exitView.setAttribute('aria-label','Exit view');exitView.hidden=true;document.body.append(exitView);exitView.onclick=()=>{signFocus.exit();canvas.focus({preventScroll:true});};
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&signFocus.active&&!boardView.active&&!editableTarget(event.target)){signFocus.exit();event.preventDefault();}});
+function openBoard(o){if(!o?.board||!boardView.open(o.board))notify('Set a valid page URL first.');}
+const messages=new ObjectMessages($('stage'),action=>{
+ const object=[...state.objects,...state.holes].find(o=>o.id===action.targetId);if(!object){notify('That object is no longer in this space.');return;}
+ if(action.type==='board'){openBoard(object);return;}
+ cancelDrag();cancelToolbarDrag();messages.clear();signFocus.enter(object,state.objects,canvas.clientWidth,canvas.clientHeight,{front:object.type==='sign-pole'});
+});messages.allowLocked=presentationOnly;
+function editForm(o,type,config){
+ if(!o||!canManipulate(o)||state.objects.some(child=>child.support===o)){notify('Move anything resting on this object before changing its shape.');return false;}
+ try{const form=makeSizedForm(type,RAPIER,o.gridSize??2,config);
+  if(!replaceForm(o,form,type,physics)){notify('This shape needs more room. Move it clear first.');return false;}
+  disposeSign(o);disposeBoard(o);decorateSign(o);decorateBoard(o);pendulums.rebuild(o);presentation.clear(o);updateCable(o);renderer.shadowMap.needsUpdate=true;select(o);return true;
+ }catch(error){notify(error.message);return false;}
+}
+const signInspector=new SignInspector($('selection-controls'),o=>{if(o===state.selected)rotateSelected();},(o,variant,mode)=>{
+ const old={...o.sign};if(editForm(o,`sign-${variant}-${mode}`,{})){Object.assign(o.sign,{label:old.label,icon:old.icon,arrow:old.arrow});disposeSign(o);decorateSign(o);}select(o);
+});
+const elementInspector=new ElementInspector($('selection-controls'),(o,key,value)=>{
+ if(o.properties.locked)return;
+ if(o.letter){editForm(o,'letter',{letter:{...o.letter,[key==='letter-font'?'font':'character']:value}});}
+ else if(key==='board-url'){if(actionURL(value)){o.board.url=value;}else notify('Use an http or https page URL.');}
+ else if(o.board){o.board.title=value;disposeBoard(o);decorateBoard(o);}
+ elementInspector.select(o);
+},openBoard);
 const inspector=new ObjectInspector($('selection-controls'),(o,kind)=>{
  if(kind==='locked'){cancelDrag();messages.clear();select(o);}
  else if(['tone','reflectance','emittance'].includes(kind)){presentation.clear(o);applyMaterialProperties(o);renderer.shadowMap.needsUpdate=true;}
  else {messages.player.index=0;messages.render();}
-});
+},()=>[...state.objects,...state.holes]);
 $('object-list').addEventListener('change',e=>select([...state.objects,...state.holes].find(o=>o.id===+e.target.value)??null));
 function mouseMode(mode){cancelDrag();cancelToolbarDrag();state.mouseMode=mode;ecology.feedingMode=mode==='seed';$('mode-drag').setAttribute('aria-pressed',String(mode==='drag'));$('mode-seed').setAttribute('aria-pressed',String(mode==='seed'));$('seed-count').hidden=mode!=='seed';canvas.style.cursor=mode==='seed'?'crosshair':'default';messages.clear();}
 $('mode-drag').onclick=()=>mouseMode('drag');$('mode-seed').onclick=()=>mouseMode('seed');
@@ -398,14 +427,14 @@ function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setS
 const environmentIds=['sun','light-strength','dither','ink','ink-color','paper-color','wind','wind-turbulence','wind-direction'];
 function captureSpace(){return {version:1,objects:[...state.holes,...state.objects].map(objectRecord),camera:{position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},environment:Object.fromEntries(environmentIds.map(id=>[id,$(id).type==='checkbox'?$(id).checked:$(id).value]))};}
 function loadSpace(input){
- const space=validateSpace(structuredClone(input),new Set([...Object.keys(LABELS),'pool']));cancelDrag();cancelToolbarDrag();signFocus.exit(true);messages.clear();messageHops.reset();hopPuffs.reset();
+ const space=validateSpace(structuredClone(input),new Set([...Object.keys(LABELS),'pool']));cancelDrag();cancelToolbarDrag();boardView.close();signFocus.exit(true);messages.clear();messageHops.reset();hopPuffs.reset();
  hydrating=true;const byId=new Map();
  try{for(const o of [...state.objects,...state.holes])remove(o,true);state.sequence=0;
   for(const record of [...space.objects].sort((a,b)=>(a.type==='pool'?0:1)-(b.type==='pool'?0:1))){
    const o=record.type==='pool'?addHole([record.position[0],record.position[2]],record.size):addObject(record.type,null,record.hanging,record.cableLength??5,null,0,record.gridSize,record);
    if(!o)throw Error('Could not restore an object.');if(o.type==='pool'){o.properties={...properties(),...record.properties};applyMaterialProperties(o);}byId.set(record.id,o);
   }
-  for(const record of space.objects){const o=byId.get(record.id);o.support=byId.get(record.support)??null;}
+  for(const record of space.objects){const o=byId.get(record.id);o.support=byId.get(record.support)??null;remapActions(o.properties,new Map([...byId].map(([id,o])=>[id,o.id])));}
  }finally{hydrating=false;}
  refreshJoins();for(const o of state.objects){pendulums.syncPose(o);if(presentationOnly&&o.hanging)o.body.setBodyType(RAPIER.RigidBodyType.Fixed,true);}
  for(const id of environmentIds)if(space.environment?.[id]!==undefined){if($(id).type==='checkbox')$(id).checked=!!space.environment[id];else $(id).value=space.environment[id];$(id).dispatchEvent(new Event($(id).type==='checkbox'?'change':'input'));}
@@ -421,7 +450,7 @@ function pasteObjects(records){
  validateSpace({...captureSpace(),objects:clean},new Set([...Object.keys(LABELS),'pool']));
  if(clean[0].type==='pool'){const r=clean[0],o=addHole(null,r.size);if(o){o.properties={...properties(),...structuredClone(r.properties)};applyMaterialProperties(o);select(o);notify('Pool pasted');}return;}
  const copies=[],map=new Map();hydrating=true;
- try{for(const r of clean){const o=addObject(r.type,null,r.hanging,r.cableLength??5,null,0,r.gridSize,r);if(!o)throw Error('No room for a copy.');copies.push(o);map.set(r.id,o);}for(const r of clean)map.get(r.id).support=map.get(r.support)??null;}finally{hydrating=false;}
+ try{for(const r of clean){const o=addObject(r.type,null,r.hanging,r.cableLength??5,null,0,r.gridSize,r);if(!o)throw Error('No room for a copy.');copies.push(o);map.set(r.id,o);}for(const r of clean){const o=map.get(r.id);o.support=map.get(r.support)??null;remapActions(o.properties,new Map([...map].map(([id,o])=>[id,o.id])),{keepExternal:true});}}finally{hydrating=false;}
  const root=copies[0];if(!root.support&&!root.hanging){const shift=physics.supportY(root,root.mesh.position.x,root.mesh.position.z)-root.mesh.position.y;stacks.translate(copies,new THREE.Vector3(0,shift,0));}
  const original=copies.map(o=>o.mesh.position.clone()),ignore=new Set(copies);let found=false;
  search:for(let radius=1;radius<=12;radius++)for(const [x,z]of [[radius,0],[0,radius],[-radius,0],[0,-radius],[radius,radius],[-radius,-radius]]){
@@ -441,7 +470,7 @@ let previous=performance.now();
 let shadowClock=0;
 function tick(now){
  requestAnimationFrame(tick);const dt=Math.min((now-previous)/1000,.05);previous=now;if(document.hidden)return;
- if(presentationOnly)controls.enabled=false;else if(signFocus.active)signFocus.step(dt);else controls.update();followSun();
+ if(boardView.active)controls.enabled=false;else if(signFocus.active)signFocus.step(dt);else if(presentationOnly)controls.enabled=false;else controls.update();exitView.hidden=!signFocus.active||boardView.active;followSun();
  poleEye.step(dt,camera,canvas,state.objects,presentationOnly||signFocus.active);for(const o of state.objects)stepSign(o,dt,o===hoveredSign,reducedMotion.matches);
  for(const o of pendulums.step(dt))updateCable(o);
  ecology.update(dt,camera,canvas.clientWidth,canvas.clientHeight);windTrails.update(dt,wind,controls.target);$('seed-count').textContent=`${ecology.food.remaining} seed${ecology.food.remaining===1?'':'s'} · ${ecology.food.eaten} eaten`;
@@ -465,6 +494,6 @@ function tick(now){
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
-const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
+const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,letter:o.letter,board:o.board,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active||boardView.active,boardOpen:boardView.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
 window.whitewater=api;
 if(document.modelContext?.registerTool){const lifecycle=new AbortController();window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});for(const tool of [{name:'export_space',description:'Export the current space including objects, messages, environment and camera.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>captureSpace()},{name:'read_scene',description:'Read the shapes and their positions in the scene.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>api.read()},{name:'add_form',description:'Add a white geometric form to an available floor position.',inputSchema:{type:'object',properties:{shape:{type:'string',enum:[...Object.keys(LABELS),'pool']}},required:['shape'],additionalProperties:false},execute:input=>({id:api.add(input.shape)})},{name:'move_form',description:"Reposition a floor form or a hanging form’s ceiling anchor to a grid position if the path is clear.",inputSchema:{type:'object',properties:{id:{type:'number'},x:{type:'number'},z:{type:'number'}},required:['id','x','z'],additionalProperties:false},execute:input=>({moved:api.move(input.id,input.x,input.z)})}]){try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(console.warn);}catch(error){console.warn(error);}}}
