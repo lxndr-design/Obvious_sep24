@@ -44,6 +44,16 @@ test('messageActions maps message actions for the popup renderer',()=>{
  assert.deepEqual(messageActions({action:{type:'object',targetId:5,label:''}}),[{kind:'object',targetId:5,label:'Take a closer look',disabled:false}]);
  assert.deepEqual(messageActions({action:{type:'website',url:'https://example.com',label:''}}),[{kind:'website',href:'https://example.com',label:'Visit website',external:true}]);
 });
+test('actionURL edge cases: protocol-relative, credentials and length boundary',()=>{
+ // Protocol-relative URLs resolve against the page origin to an http(s) URL,
+ // inside the allowlist — unlike schemes that must never pass.
+ assert.equal(actionURL('//example.com/page'),'//example.com/page');
+ for(const value of ['https://user@example.com','https://:pw@example.com','https://user:pw@example.com/x'])assert.equal(actionURL(value),null);
+ const boundary='https://example.com/'+'a'.repeat(2028);
+ assert.equal(boundary.length,2048);
+ assert.equal(actionURL(boundary),boundary);
+ assert.equal(actionURL(boundary+'a'),null);
+});
 test('spaces retain character, font, board page and hover action fields',()=>{
  const letter=form('letter',2,{letter:{character:'G',font:'space-grotesk'}}),board=form('board');board.id=2;letter.properties.messages=[{text:'Read more',choices:[],action:{type:'board',targetId:2,label:'Open'}}];
  const value={version:1,objects:[objectRecord(letter),objectRecord(board)],camera:{position:[5,8,5],target:[0,0,0],zoom:1}};

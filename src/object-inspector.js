@@ -34,7 +34,7 @@ export class ObjectInspector {
    kind.onchange=()=>{message.action={type:kind.value,label:'',...(kind.value==='website'?{url:''}:{targetId:null})};this.renderMessages();this.onChange(this.object,'messages');};row.append(el('label','On click'),kind);
    if(action.type!=='none'){
     const caption=el('input');caption.placeholder='Button label (optional)';caption.maxLength=80;caption.value=action.label??'';caption.setAttribute('aria-label',`Action label for message ${index+1}`);caption.oninput=()=>{action.label=caption.value;this.onChange(this.object,'message-text');};row.append(caption);
-    if(action.type==='website'){const url=el('input');url.placeholder='https://…';url.value=action.url??'';url.maxLength=2048;url.setAttribute('aria-label',`Website for message ${index+1}`);url.oninput=()=>{action.url=url.value;url.setCustomValidity(url.value&&!actionURL(url.value)?'Use an http or https URL.':'');this.onChange(this.object,'message-text');};row.append(url);}
+    if(action.type==='website'){const url=el('input');url.placeholder='https://…';url.value=action.url??'';url.maxLength=2048;url.setAttribute('aria-label',`Website for message ${index+1}`);url.oninput=()=>{action.url=url.value;url.setCustomValidity(url.value&&!actionURL(url.value)?'Use an http or https URL.':'');this.onChange(this.object,'message-text');};url.setCustomValidity(url.value&&!actionURL(url.value)?'Use an http or https URL.':'');row.append(url);}
     else {const target=el('select');target.setAttribute('aria-label',`Target for message ${index+1}`);target.add(new Option('Choose an object…',''));for(const o of this.getObjects().filter(o=>action.type!=='board'||o.board))target.add(new Option(`${o.board?.title||o.letter?.character||o.type} · ${o.id}`,o.id));target.value=action.targetId??'';target.onchange=()=>{action.targetId=target.value?+target.value:null;this.onChange(this.object,'messages');};row.append(target);}
    }
    row.append(remove);this.editor.append(row);
@@ -42,7 +42,15 @@ export class ObjectInspector {
  }
 }
 export class ObjectMessages {
- constructor(stage,onAction=()=>{}){this.onAction=onAction;this.stage=stage;this.dots=new Map();this.player=new MessagePlayer();this.bubble=el('div');this.bubble.id='object-message';this.bubble.hidden=true;this.bubble.setAttribute('role','status');stage.append(this.bubble);this.over=false;this.grace=0;this.bubble.onpointerenter=()=>{this.over=true;};this.bubble.onpointerleave=()=>{this.over=false;this.grace=.18;};}
+ constructor(stage,onAction=()=>{}){this.onAction=onAction;this.stage=stage;this.dots=new Map();this.player=new MessagePlayer();this.bubble=el('div');this.bubble.id='object-message';this.bubble.hidden=true;this.bubble.setAttribute('role','status');stage.append(this.bubble);this.over=false;this.grace=0;this.canvas=null;this.bubble.onkeydown=e=>{if(e.key!=='Escape')return;e.preventDefault();e.stopPropagation();this.clear();this.canvas?.focus?.({preventScroll:true});};
+  // The bubble never captures the pointer (pointer-events:none in CSS), so
+  // events fall through to the canvas and hover persistence is geometric:
+  // the pointer counts as "over" while inside the bubble's rect.
+  stage.addEventListener('pointermove',e=>{
+   if(this.bubble.hidden){this.over=false;return;}
+   const r=this.bubble.getBoundingClientRect(),over=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+   if(over!==this.over){this.over=over;if(!over)this.grace=.18;}
+  });}
  clear(){this.over=false;this.player.enter(null);this.grace=0;this.render();}
  target(object){if(!this.allowLocked&&object?.properties.locked||!object?.properties.messages.some(m=>m.text.trim()))object=null;if(!object){if(this.player.object&&!this.over&&!this.grace)this.grace=.35;return;}if(object!==this.player.object){this.player.enter(object);this.player.index=object.properties.messages.findIndex(m=>m.text.trim());this.render();}this.grace=0;}
  leave(){this.grace=.18;}
@@ -71,5 +79,5 @@ export class ObjectMessages {
 
   }
  }
- step(dt,camera,canvas,objects=[]){this.updateDots(objects,camera,canvas);if(this.grace>0&&!this.over){this.grace-=dt;if(this.grace<=0)this.clear();}if(!this.over&&this.player.step(dt))this.render();const o=this.player.object;if(!o)return;const p=o.mesh.localToWorld(new THREE.Vector3(0,o.height/2+.25,0)).project(camera),r=canvas.getBoundingClientRect();this.bubble.style.left=Math.max(12,Math.min(r.width-this.bubble.offsetWidth-12,(p.x+1)*r.width/2-this.bubble.offsetWidth/2))+'px';this.bubble.style.top=Math.max(85,(1-p.y)*r.height/2-this.bubble.offsetHeight-10)+'px';}
+ step(dt,camera,canvas,objects=[]){this.canvas=canvas;this.updateDots(objects,camera,canvas);if(this.grace>0&&!this.over){this.grace-=dt;if(this.grace<=0)this.clear();}if(!this.over&&this.player.step(dt))this.render();const o=this.player.object;if(!o)return;const p=o.mesh.localToWorld(new THREE.Vector3(0,o.height/2+.25,0)).project(camera),r=canvas.getBoundingClientRect();this.bubble.style.left=Math.max(12,Math.min(r.width-this.bubble.offsetWidth-12,(p.x+1)*r.width/2-this.bubble.offsetWidth/2))+'px';this.bubble.style.top=Math.max(85,(1-p.y)*r.height/2-this.bubble.offsetHeight-10)+'px';}
 }
