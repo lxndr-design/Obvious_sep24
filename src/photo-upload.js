@@ -76,7 +76,7 @@ export async function handlePhotoFile(file,R,add,notify){
  const photo={url:budgetedDataUrl(canvas),shape,contour:shape==='cutout'?contour:null,aspect:w/h};
  // addObject auto-seeks clear floor near the view and reports its own outcome
  // (scene full / no clear space) — no second notice here.
- const object=add('photo-object',null,false,5,null,0,2,null,{photo});
+ const object=add('photo-object',null,false,5,null,0,2,null,photo);
  if(!object)return null;
  notify?.(shape==='cutout'?'Placed your photo, cut out as a placeable object.':'The subject was hard to isolate, so the photo landed as a paper card.');
  return object;
