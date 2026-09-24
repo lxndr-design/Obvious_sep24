@@ -30,6 +30,12 @@ export class ChatBubbles {
     this.bubbles.set(playerId, {id: playerId, name, text, expiresAt: now + this.expiryMs});
   }
 
+  // Is a bubble currently shown for this player — present and not yet expired?
+  active(playerId, now) {
+    const bubble = this.bubbles.get(playerId);
+    return !!bubble && now < bubble.expiresAt;
+  }
+
   // A player left the board or their entity despawned — the bubble goes with it.
   clear(playerId) {
     return this.bubbles.delete(playerId);

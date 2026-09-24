@@ -123,7 +123,7 @@ function spawnEntity(player,self=false){
 }
 function despawnEntity(id){
  const entry=entities.get(id);if(!entry)return;
- entry.entity.dispose();entry.material.dispose();playerGroup.remove(entry.entity.group);entry.tag.remove();
+ entry.entity.dispose();entry.material.dispose();playerGroup.remove(entry.entity.group);entry.tag.remove();entry.bubble?.remove();
  entities.delete(id);
  if(id===room.identity.id)selfEntity=null;
 }
@@ -284,15 +284,18 @@ function sendChatLine(){
 }
 $('chat-form').addEventListener('submit',event=>{event.preventDefault();sendChatLine();});
 $('chat-input').maxLength=LIMITS.MAX_CHAT_CHARS;
-function updateTags(){
+function updateTags(now){
  // Name tags are HTML overlays projected from each entity's head, like the
  // popup messages — crisp under the dither, and easy to hit-test.
- for(const entry of entities.values()){
+ for(const [id,entry] of entities.entries()){
   const point=entry.entity.group.position.clone();point.y+=PLAYER_HEIGHT+.18;point.project(camera);
   const x=(point.x+1)/2*canvas.clientWidth,y=(1-point.y)/2*canvas.clientHeight;
   const visible=point.z<1&&x>=-60&&y>=-60&&x<=canvas.clientWidth+60&&y<=canvas.clientHeight+60;
   entry.tag.hidden=!visible;
   if(visible){entry.tag.style.left=`${x}px`;entry.tag.style.top=`${y}px`;}
+  // A chat bubble rides the same projected point, stacked above the name tag.
+  if(entry.bubble){entry.bubble.hidden=!visible||!chatBubbles.active(id,now);
+   if(visible){entry.bubble.style.left=`${x}px`;entry.bubble.style.top=`${y}px`;}}
  }
 }
 $('rename-player').addEventListener('click',beginRename);
@@ -764,7 +767,7 @@ function tick(now){
  messageHops.step(dt,state.objects,{disabled:presentationOnly||state.paused||reducedMotion.matches||signFocus.active,busy:o=>dragged.has(o)||presentation.motion.has(o),clear:(members,height)=>hopClearance(stacks,members,height)});
  for(const event of messageHops.events){ecology.objectHop(event);if(event.kind==='takeoff')hopPuffs.emit(event.members,p=>ecology.waterAt(p));}
  hopPuffs.step(state.paused?0:dt,camera);
- room.step();stepChatBubbles(now);updateTags();
+ room.step();stepChatBubbles(now);updateTags(now);
  presentation.withPresentation(()=>messageHops.withPresentation(()=>{
   for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
   if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas,[...state.objects,...state.holes]);

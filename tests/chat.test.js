@@ -41,6 +41,17 @@ test('bubbles expire after CHAT_EXPIRY_MS and replacement restarts the clock', (
   assert.equal(bubbles.bubbles.size, 0);
 });
 
+test('active() reports present, unexpired bubbles only', () => {
+  const bubbles = new ChatBubbles();
+  bubbles.show('p1', {name: 'Ana', text: 'hello'}, 1000);
+  assert.equal(bubbles.active('p1', 1000), true);
+  assert.equal(bubbles.active('p1', 1000 + CHAT_EXPIRY_MS - 1), true);
+  assert.equal(bubbles.active('p1', 1000 + CHAT_EXPIRY_MS), false);
+  assert.equal(bubbles.active('ghost', 1000), false); // unknown player
+  bubbles.clear('p1');
+  assert.equal(bubbles.active('p1', 1000), false);
+});
+
 test('multiple bubbles expire independently, in insertion order', () => {
   const bubbles = new ChatBubbles();
   bubbles.show('p1', {name: 'Ana', text: 'one'}, 0);
