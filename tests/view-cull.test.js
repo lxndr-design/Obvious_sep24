@@ -11,15 +11,15 @@ import {HangingFocus} from '../src/hanging-focus.js';
 await R.init();
 
 // Tight orthographic rig: camera at (0,0,10) looking down -z, near .1 far 10.
-// One world unit is then 2/9.9 ≈ .202 NDC of depth and .0909 of screen X, so
-// margin boundary cases land on clean, exactly-checkable offsets.
+// One world unit is .0909 NDC of screen X, so pixel-margin boundary cases land
+// on clean, exactly-checkable offsets. Depth margins are world units.
 function rig(){
  const camera=new THREE.OrthographicCamera(-11,11,8,-8,.1,10);
  camera.position.set(0,0,10);camera.lookAt(0,0,0);camera.zoom=1;camera.updateProjectionMatrix();
  return camera;
 }
 const box=(id,size,x,y,z)=>({id,bounds:new THREE.Box3(new THREE.Vector3(x-size/2,y-size/2,z-size/2),new THREE.Vector3(x+size/2,y+size/2,z+size/2))});
-const margin={depth:.05,screenPx:4};
+const margin={depth:.15,screenPx:4};
 function meshAt(geometry,x,y,z){const mesh=new THREE.Mesh(geometry);mesh.position.set(x,y,z);return mesh;}
 const view=(width,height)=>({width,height});
 const flat=g=>g.index?g.toNonIndexed():g.clone();
@@ -76,10 +76,11 @@ test('a depth straddle renders even under full rectangle containment',()=>{
 });
 
 test('the depth margin blocks marginal hides',()=>{
- const camera=rig(),occluder=box(1,3,0,0,5),justBehind=box(2,1,0,0,5.8); // nearest point ~.04 NDC behind the occluder's front face
- assert.equal(computeVisibility([justBehind],camera,[occluder],{depth:.05,screenPx:4}).get(2),true);
+ const camera=rig(),occluder=box(1,3,0,0,5),justBehind=box(2,1,0,0,5.9); // nearest point .1 world behind the occluder's front face
+ assert.equal(computeVisibility([justBehind],camera,[occluder],{depth:.15,screenPx:4}).get(2),true);
+ assert.equal(computeVisibility([justBehind],camera,[occluder],{depth:.2,screenPx:4}).get(2),true);
  assert.equal(computeVisibility([justBehind],camera,[occluder],{depth:.001,screenPx:4}).get(2),false);
- const wellBehind=box(3,1,0,0,5.5);
+ const wellBehind=box(3,1,0,0,5.5); // .5 world behind the front face — outside the default margin
  assert.equal(computeVisibility([wellBehind],camera,[occluder],margin).get(3),false);
 });
 
