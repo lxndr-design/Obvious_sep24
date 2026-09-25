@@ -207,6 +207,25 @@ test('a seat too small for her is refused gracefully, without clipping the bench
  assert.ok(!clipped,'sat a bench that cannot hold her');
  assert.ok(['idle','wander'].includes(state().state));
 });
+test('a barren anchor still stretches her legs instead of freezing',()=>{
+ const collision=new CollisionScene(R);
+ const addScaled=(type,size,x,z,ry=0)=>{
+  const f=makeSizedForm(type,R,size),mesh=new THREE.Mesh(f.meshGeometry??f.geometry);
+  mesh.position.set(x,f.height/2,z);mesh.rotation.y=ry;
+  const o={...f,mesh,type,id:collision.objects.length+1};mesh.userData.object=o;
+  collision.objects.push(o);return o;
+ };
+ const bench=addScaled('bench',2,30,30),g=addScaled('grandma-skirt-bun',2,0,0);
+ const s=schedule(collision,411,[{kind:'bench',object:bench,x:30,z:30}]);
+ const state=()=>s.states.get(g);
+ s.step(dt,[g]);
+ assert.ok(drive(s,g,()=>state().state==='wander'),'never wandered from the barren anchor');
+ const target=state().target;
+ assert.ok(Math.hypot(target.x-state().anchor.x,target.z-state().anchor.z)<=1.61,
+  'stretch target left the anchor radius');
+ assert.ok(drive(s,g,()=>state().state!=='wander'),'never arrived at the stretch stop');
+ assert.ok(collision.canPlace(g,g.mesh.position,g.mesh.quaternion,new Set([g])),'clipped something on the stretch');
+});
 test('poseGrandmaGait swings pivots from the gait phase and hides them when seated',()=>{
  const pivot=()=>({rotation:{x:0,z:0},visible:true});
  const o={visualRoot:{position:{y:0}},hipPivots:[pivot(),pivot()],shoulderPivots:[pivot(),pivot()],walkBlend:1,gaitPhase:.25,swayPhase:0,seated:false};

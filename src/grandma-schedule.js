@@ -98,7 +98,7 @@ export class GrandmaSchedule {
  }
  arrive(o,s){
   const poi=s.poi;
-  if(poi.kind==='bench'){
+  if(poi?.kind==='bench'){
    // The approach scan already found her standable spot; seat her through the
    // same placement probes drags use (sitting hull vs the bench, forward ladder).
    const seat=this.benchSeat(o,poi.object);
@@ -110,7 +110,7 @@ export class GrandmaSchedule {
   const ground=this.standingSpot(o,s.target.x,s.target.z,o.mesh.quaternion);
   if(!ground){this.blocked(o,s);return;}
   o.mesh.position.copy(ground);this.onMove?.(o);
-  if(poi.kind==='bath'||poi.kind==='pile'){s.state='feed';s.timer=this.rand(FEED_MIN,FEED_SPAN);s.target=null;s.candidates=null;}
+  if(poi?.kind==='bath'||poi?.kind==='pile'){s.state='feed';s.timer=this.rand(FEED_MIN,FEED_SPAN);s.target=null;s.candidates=null;}
   else this.retire(o);
  }
  feed(o,s,dt){
@@ -227,7 +227,18 @@ export class GrandmaSchedule {
   }
   // Prefer candidates reachable without detours; when every path skims an
   // obstacle, walk anyway and let the per-step probes re-route.
-  return candidates.filter(c=>c.clear).length?candidates.filter(c=>c.clear):candidates;
+  const clear=candidates.filter(c=>c.clear);
+  if(clear.length)return clear;
+  if(candidates.length)return candidates;
+  // Barren-anchor fallback: with no reachable point of interest she still
+  // stretches her legs — a seeded open spot near the anchor, validated like
+  // every other stop point, so a drag to a quiet corner never freezes her.
+  for(let attempt=0;attempt<4;attempt++){
+   const bearing=this.random()*TAU,distance=.7+this.random()*.8;
+   const point=this.groundSpot(o,anchor.x+Math.sin(bearing)*distance,anchor.z+Math.cos(bearing)*distance,o.mesh.quaternion);
+   if(point&&this.pathClear(o,point))return [{poi:null,point,clear:true}];
+  }
+  return [];
  }
  approach(poi,o,s){
   if(poi.kind==='bench'){
