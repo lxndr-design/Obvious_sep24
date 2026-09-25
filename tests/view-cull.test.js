@@ -132,6 +132,19 @@ test('selecting a hidden mesh reveals it before the next compute',()=>{
  assert.equal(candidate.visible,true);
 });
 
+test('deselecting re-arms the recompute so a released object can hide',()=>{
+ let t=0;const camera=rig(),viewport=view(800,600),viewCull=new ViewCull({now:()=>t});
+ const occluder=meshAt(new THREE.BoxGeometry(3,3,3),0,0,5),first=meshAt(new THREE.BoxGeometry(1,1,1),0,0,2),second=meshAt(new THREE.BoxGeometry(1,1,1),0,0,2);
+ const entries=[{id:1,mesh:occluder},{id:2,mesh:first},{id:3,mesh:second}];
+ viewCull.tick(entries,camera,viewport);
+ assert.equal(first.visible,false);assert.equal(second.visible,false);
+ t+=1;viewCull.tick(entries,camera,viewport,new Set([2])); // attention moves to the first: it is revealed, the second stays hidden
+ assert.equal(first.visible,true);assert.equal(second.visible,false);
+ t+=1;viewCull.tick(entries,camera,viewport,new Set()); // deselect: nothing moved, yet the hide computed for the old keep must not outlive it
+ assert.equal(first.visible,false);
+ assert.equal(viewCull.hiddenCount,2);
+});
+
 test('motion reveals immediately; recompute waits for the interval',()=>{
  let t=0;const camera=rig(),viewport=view(800,600),viewCull=new ViewCull({now:()=>t});
  const occluder=meshAt(new THREE.BoxGeometry(3,3,3),0,0,5),candidate=meshAt(new THREE.BoxGeometry(1,1,1),0,0,2);

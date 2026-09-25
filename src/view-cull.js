@@ -71,7 +71,7 @@ export function computeVisibility(objects,camera,occluders,margin={depth:.15,scr
 export class ViewCull{
  constructor({depth=.15,screenPx=4,interval=.1,now=()=>performance.now()/1000}={}){
   this.margin={depth,screenPx};this.interval=interval;this.now=now;this.enabled=true;
-  this.lastRun=-1/0;this.cameraMatrix=new THREE.Matrix4();this.objectMatrices=new Map();this.hidden=new Set();this.pending=false;
+  this.lastRun=-1/0;this.cameraMatrix=new THREE.Matrix4();this.objectMatrices=new Map();this.hidden=new Set();this.pending=false;this.keepKey='';
  }
  get hiddenCount(){return this.hidden.size;}
  reveal(){for(const mesh of this.hidden)mesh.visible=true;this.hidden.clear();}
@@ -79,8 +79,11 @@ export class ViewCull{
   if(!this.enabled){if(this.hidden.size)this.reveal();return;}
   camera.updateMatrixWorld();
   const view=new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
-  let stale=!view.equals(this.cameraMatrix);
-  this.cameraMatrix.copy(view);
+  // A changed keep-set re-arms the recompute too: attention moved, so a hide
+  // computed for the previous keep must not outlive it.
+  const keepKey=[...keep].sort((a,b)=>a-b).join(',');
+  let stale=keepKey!==this.keepKey||!view.equals(this.cameraMatrix);
+  this.keepKey=keepKey;this.cameraMatrix.copy(view);
   if(!stale)for(const {id,mesh} of entries){
    mesh.updateWorldMatrix(false,false);
    const previous=this.objectMatrices.get(id);
