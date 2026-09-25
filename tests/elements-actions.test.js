@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import R from '@dimforge/rapier3d-compat';
 import {makeSizedForm} from '../src/object-size.js';
 import {validLetter} from '../src/letters.js';
-import {actionURL,validAction,remapActions} from '../src/message-actions.js';
+import {actionURL,validAction,remapActions,messageActions} from '../src/message-actions.js';
 import {objectRecord,validateSpace} from '../src/spaces.js';
 import {properties} from '../src/object-properties.js';
 import {CollisionScene} from '../src/collision.js';
@@ -29,6 +29,30 @@ test('action URLs reject scripts, embedded documents and credentials; target ref
  for(const value of ['https://example.com/page','/boards/welcome.html'])assert.equal(actionURL(value),value);
  assert.ok(validAction({type:'website',url:'https://example.com'}));assert.equal(validAction({type:'object',targetId:'2'}),false);
  const p={messages:[{action:{type:'board',targetId:9}},{action:{type:'object',targetId:4}}]};remapActions(p,new Map([[9,2]]));assert.equal(p.messages[0].action.targetId,2);assert.equal(p.messages[1].action.type,'none');
+});
+test('messageActions maps message actions for the popup renderer',()=>{
+ assert.deepEqual(messageActions({text:'hi',choices:[]}),[]);
+ assert.deepEqual(messageActions({action:{type:'none'}}),[]);
+ assert.deepEqual(messageActions({action:{type:'website',url:'https://example.com',label:'Docs'}}),[{kind:'website',href:'https://example.com',label:'Docs',external:true}]);
+ // Invalid or missing website URLs yield href:null — the renderer shows the
+ // label as plain text, never an anchor with an empty href.
+ assert.deepEqual(messageActions({action:{type:'website',url:'javascript:alert(1)'}}),[{kind:'website',href:null,label:'Visit website',external:true}]);
+ assert.deepEqual(messageActions({action:{type:'website'}}),[{kind:'website',href:null,label:'Visit website',external:true}]);
+ assert.deepEqual(messageActions({action:{type:'board',targetId:2}}),[{kind:'board',targetId:2,label:'Open board',disabled:false}]);
+ assert.deepEqual(messageActions({action:{type:'object'}}),[{kind:'object',targetId:null,label:'Take a closer look',disabled:true}]);
+ // An empty label falls back to the action's default.
+ assert.deepEqual(messageActions({action:{type:'object',targetId:5,label:''}}),[{kind:'object',targetId:5,label:'Take a closer look',disabled:false}]);
+ assert.deepEqual(messageActions({action:{type:'website',url:'https://example.com',label:''}}),[{kind:'website',href:'https://example.com',label:'Visit website',external:true}]);
+});
+test('actionURL edge cases: protocol-relative, credentials and length boundary',()=>{
+ // Protocol-relative URLs resolve against the page origin to an http(s) URL,
+ // inside the allowlist — unlike schemes that must never pass.
+ assert.equal(actionURL('//example.com/page'),'//example.com/page');
+ for(const value of ['https://user@example.com','https://:pw@example.com','https://user:pw@example.com/x'])assert.equal(actionURL(value),null);
+ const boundary='https://example.com/'+'a'.repeat(2028);
+ assert.equal(boundary.length,2048);
+ assert.equal(actionURL(boundary),boundary);
+ assert.equal(actionURL(boundary+'a'),null);
 });
 test('spaces retain character, font, board page and hover action fields',()=>{
  const letter=form('letter',2,{letter:{character:'G',font:'space-grotesk'}}),board=form('board');board.id=2;letter.properties.messages=[{text:'Read more',choices:[],action:{type:'board',targetId:2,label:'Open'}}];

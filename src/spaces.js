@@ -1,7 +1,7 @@
 import {validAction,actionURL} from './message-actions.js';
 import {validLetter} from './letters.js';
 const KEY='eternity.spaces.v1';
-export const objectRecord=o=>({id:o.id,type:o.type,gridSize:o.gridSize??null,size:o.size??null,position:o.mesh.position.toArray(),rotation:o.mesh.quaternion.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,properties:structuredClone(o.properties),support:o.support?.id??null,seated:!!o.seated,sign:o.sign?structuredClone(o.sign):null,signSlot:o.signSlot??null,letter:o.letter?{...o.letter}:null,board:o.board?{...o.board}:null});
+export const objectRecord=o=>({id:o.id,type:o.type,gridSize:o.gridSize??null,size:o.size??null,position:o.mesh.position.toArray(),rotation:o.mesh.quaternion.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,properties:structuredClone(o.properties),support:o.support?.id??null,seated:!!o.seated,sign:o.sign?structuredClone(o.sign):null,signSlot:o.signSlot??null,letter:o.letter?{...o.letter}:null,board:o.board?{...o.board}:null,photo:o.photo?structuredClone(o.photo):null});
 export function validateSpace(value,types){
  if(!value||value.version!==1||!Array.isArray(value.objects)||value.objects.length>40)throw Error('This is not a valid Eternity space.');
  const finite=(a,n)=>Array.isArray(a)&&a.length===n&&a.every(v=>Number.isFinite(v)&&Math.abs(v)<10000),ids=new Set();
@@ -25,7 +25,10 @@ export function validateSpace(value,types){
 export function readSpaces(storage=localStorage){try{const a=JSON.parse(storage.getItem(KEY)||'[]');return Array.isArray(a)?a:[];}catch{return [];}}
 export function saveSpace(name,space,storage=localStorage){const all=readSpaces(storage),record={id:crypto.randomUUID(),name:name.trim().slice(0,80)||'Untitled space',savedAt:new Date().toISOString(),space};all.unshift(record);storage.setItem(KEY,JSON.stringify(all));return record;}
 export function downloadSpace(space,name='eternity-space.json'){const url=URL.createObjectURL(new Blob([JSON.stringify(space,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-export function presentationURL(space){const url=new URL(location.href);url.search='?view=1';url.hash='space='+encodeURIComponent(JSON.stringify(space));return url.href;}
+export function presentationURL(space){const url=new URL(location.href);url.search='?view=1';url.hash='space='+encodeURIComponent(JSON.stringify(withoutPhotoData(space)));return url.href;}
+// Presentation links carry the whole space in the URL hash — photo data URLs
+// (up to 64 KiB each) are stripped there; those objects read as paper cards.
+export const withoutPhotoData=space=>({...space,objects:space.objects.map(o=>o?.photo?.url?{...o,photo:{...o.photo,url:null}}:o)});
 export function installSpaces({capture,load,notify}){
  const button=document.createElement('button');button.id='spaces';button.className='text-button';button.textContent='Spaces';document.querySelector('.header-right').prepend(button);
  const dialog=document.createElement('dialog');dialog.id='spaces-dialog';dialog.innerHTML='<div class="picker-heading"><h2>Spaces</h2><button type="button" aria-label="Close spaces">×</button></div><label for="space-name">Name</label><input id="space-name" maxlength="80" placeholder="My quiet corner"><div class="space-actions"><button id="save-space">Save space</button><button id="export-space">Export file</button><button id="import-space">Import file</button><button id="present-space">Presentation link</button></div><p class="hint">Saved on this browser. Export a file to keep a portable copy. Presentation links open a locked, clean view of your current space.</p><div id="saved-spaces"></div><input type="file" id="space-file" accept="application/json,.json" hidden>';document.body.append(dialog);

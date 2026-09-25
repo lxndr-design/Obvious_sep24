@@ -31,6 +31,10 @@ export function stackingProfile(type,form){
  else if(type==='bench'){
   for(const x of [-.92,.92])for(const z of [-.24,.24])footprints.push(rect(x,z,.12,.12));
   for(let i=0;i<4;i++)heads.push(rect(0,-.265+i*.18,2.35,.145));headY=.7675-form.height/2;
+ }else if(type.startsWith('home-')){
+  const model=type.slice(5);
+  if(model==='coffee-table'){for(const x of [-.4,.4])for(const z of [-.2,.2])footprints.push(rect(x,z,.05,.05));heads.push(rect(0,0,w,d));}
+  else if(model==='bookshelf'||model==='dresser'||model==='kitchen-counter'){footprints.push(rect(0,0,w,d));heads.push(rect(0,0,w,d));}
  }
  const saturation=ps=>Math.min(10,10*ps.reduce((sum,p)=>sum+area(p),0)/(w*d));
  // A curved bottom has zero flat area, but still has a physical contact point.

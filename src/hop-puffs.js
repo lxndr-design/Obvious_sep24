@@ -13,7 +13,7 @@ export class HopPuffs {
    shader.fragmentShader='varying float vPuffAlpha;\n'+shader.fragmentShader;
    shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.a*=vPuffAlpha;');
   };
-  this.mesh=new THREE.InstancedMesh(geometry,material,this.capacity);this.mesh.count=0;this.mesh.frustumCulled=false;scene.add(this.mesh);
+  this.mesh=new THREE.InstancedMesh(geometry,material,this.capacity);this.mesh.count=0;scene.add(this.mesh);
  }
  emit(members,waterAt=()=>null){
   const group=new Set(members);
@@ -32,7 +32,7 @@ export class HopPuffs {
   for(const p of this.puffs){p.age+=dt;p.position.addScaledVector(p.velocity,dt);}
   this.puffs=this.puffs.filter(p=>p.age<p.life);this.mesh.count=this.puffs.length;
   this.puffs.forEach((p,i)=>{const t=p.age/p.life;this.transform.position.copy(p.position);this.transform.quaternion.copy(camera.quaternion);this.transform.scale.setScalar(p.radius*(1+t*2));this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);this.alpha.setX(i,.5*(1-t)*(1-t));});
-  this.alpha.needsUpdate=true;this.mesh.instanceMatrix.needsUpdate=true;
+  this.alpha.needsUpdate=true;this.mesh.instanceMatrix.needsUpdate=true;this.mesh.computeBoundingSphere();
  }
  reset(){this.puffs=[];this.mesh.count=0;}
 }
