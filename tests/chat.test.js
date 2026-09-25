@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ChatBubbles, ChatLog, CHAT_EXPIRY_MS, MAX_LOG_ENTRIES, composeChatText} from '../src/chat.js';
+import {ChatBubbles, ChatLog, CHAT_EXPIRY_MS, MAX_LOG_ENTRIES, clampBubbleAnchor, composeChatText} from '../src/chat.js';
 import {LIMITS} from '../src/net/protocol.js';
 
 test('composeChatText mirrors the protocol validator', () => {
@@ -74,4 +74,20 @@ test('session log keeps order, caps at MAX_LOG_ENTRIES, and never reorders', () 
 
   // Entries are plain records; a caller may hold a reference without surprises.
   assert.deepEqual(log.items[0], {id: 'p1', name: 'Ana', text: 'm0', at: 3});
+});
+
+test('clampBubbleAnchor keeps the bubble inside the stage near every edge', () => {
+  const stage = {stageWidth: 1280, stageHeight: 640, width: 180, height: 30};
+  // Comfortable mid-stage point passes through unchanged.
+  const mid = clampBubbleAnchor({x: 640, y: 300, ...stage});
+  assert.deepEqual(mid, {x: 640, y: 300});
+  // Near the top edge the anchor is pushed down so the box clears the header.
+  const top = clampBubbleAnchor({x: 640, y: 40, ...stage});
+  assert.equal(top.y, 8 + 30 + 26);
+  assert.equal(top.x, 640);
+  // Near the left/right edges the anchor is pulled inside so the box stays visible.
+  assert.equal(clampBubbleAnchor({x: 10, y: 300, ...stage}).x, 8 + 90);
+  assert.equal(clampBubbleAnchor({x: 1270, y: 300, ...stage}).x, 1280 - 8 - 90);
+  // Near the bottom the anchor never escapes below the stage.
+  assert.equal(clampBubbleAnchor({x: 640, y: 639, ...stage}).y, 640 - 8);
 });

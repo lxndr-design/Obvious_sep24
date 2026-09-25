@@ -33,7 +33,7 @@ import {RoomClient,loadIdentity,saveIdentity,STATUS} from './net/client.js';
 import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
 import {LIMITS} from './net/protocol.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
-import {ChatBubbles,ChatLog,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
+import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
 import {DitherShader} from './dither.js';
@@ -293,9 +293,13 @@ function updateTags(now){
   const visible=point.z<1&&x>=-60&&y>=-60&&x<=canvas.clientWidth+60&&y<=canvas.clientHeight+60;
   entry.tag.hidden=!visible;
   if(visible){entry.tag.style.left=`${x}px`;entry.tag.style.top=`${y}px`;}
-  // A chat bubble rides the same projected point, stacked above the name tag.
-  if(entry.bubble){entry.bubble.hidden=!visible||!chatBubbles.active(id,now);
-   if(visible){entry.bubble.style.left=`${x}px`;entry.bubble.style.top=`${y}px`;}}
+  // A chat bubble rides the same projected point, stacked above the name tag;
+  // its anchor is clamped so the box never rides up under the page header.
+  if(entry.bubble){
+   const size=entry.bubble.getBoundingClientRect();
+   const anchor=clampBubbleAnchor({x,y,width:size.width||180,height:size.height||30,stageWidth:canvas.clientWidth,stageHeight:canvas.clientHeight});
+   entry.bubble.hidden=!visible||!chatBubbles.active(id,now);
+   if(visible){entry.bubble.style.left=`${anchor.x}px`;entry.bubble.style.top=`${anchor.y}px`;}}
  }
 }
 $('rename-player').addEventListener('click',beginRename);

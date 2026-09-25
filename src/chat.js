@@ -69,3 +69,18 @@ export class ChatLog {
     return entry;
   }
 }
+
+// Bubbles ride the entity projection but must stay readable: the stage clips
+// anything above its top edge under the page header, and a bubble taller than
+// the tag stack needs more slack than a name tag. Clamp the anchor so the
+// bubble's box stays inside the stage's visible rect. Pure — updateTags feeds
+// it the projected point each frame, and tests pin the clamp bounds.
+export function clampBubbleAnchor({x, y, width, height, stageWidth, stageHeight, margin = 8}) {
+  const topLimit = margin + height + 26; // transform stacks it above the anchor
+  const leftMin = margin + width / 2;
+  const rightMax = stageWidth - margin - width / 2;
+  return {
+    x: Math.min(Math.max(x, leftMin), Math.max(leftMin, rightMax)),
+    y: Math.min(Math.max(y, topLimit), Math.max(topLimit, stageHeight - margin)),
+  };
+}
