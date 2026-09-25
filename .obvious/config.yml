@@ -1,0 +1,7 @@
+# Obvious repo policy — defaults for an empty repository
+branches:
+  default: main
+  prefix: setup
+merge:
+  method: squash
+  requireHumanMerge: true
