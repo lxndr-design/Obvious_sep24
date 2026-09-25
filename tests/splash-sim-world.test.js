@@ -44,8 +44,8 @@ test('constructor follows the repo pattern: fixed 1/120 step, solver params, flo
  const world=new SplashWorld(R);
  // Rapier 0.19 stores the timestep as f32 — compare with tolerance.
  assert.ok(Math.abs(world.world.timestep-SIM_DT)<1e-6,`timestep ${world.world.timestep}`);
- assert.equal(world.world.integrationParameters.numSolverIterations,8);
- assert.equal(world.world.integrationParameters.maxCcdSubsteps,4);
+ assert.equal(world.world.integrationParameters.numSolverIterations,4);
+ assert.equal(world.world.integrationParameters.maxCcdSubsteps,0);
  assert.deepEqual([...world.config.gravity],WORLD_DEFAULTS.gravity);
  world.dispose();
 });
@@ -350,3 +350,42 @@ test('20k bodies: world holds, steps, and writes a full pose frame',()=>{
  console.log(`[20k sanity] spawn ${spawnMs.toFixed(0)}ms, avg step ${stepMs.toFixed(1)}ms (${(1000/stepMs).toFixed(0)} steps/s equivalent)`);
  world.dispose();
 });
+
+test('simHz 60 halves the step rate: a coarser fixed step, not slow motion',()=>{
+ const world=new SplashWorld(R,{config:{simHz:60}});
+ assert.ok(Math.abs(world.world.timestep-1/60)<1e-6,`timestep ${world.world.timestep}`);
+ // Two 1/120 advances accumulate to one 1/60 step.
+ const a=world.advance(SIM_DT);
+ const b=world.advance(SIM_DT);
+ assert.deepEqual([a,b],[0,1]);
+ assert.equal(world.frame,1);
+ // 120 x 1/120 s of wall time = exactly 60 sim steps.
+ world.accumulator=0;
+ let steps=0;
+ for(let i=0;i<120;i++)steps+=world.advance(SIM_DT);
+ assert.equal(steps,60);
+ world.dispose();
+});
+
+test('patch({simHz}) re-times the world live; out-of-range rates are ignored',()=>{
+ const world=new SplashWorld(R);
+ world.patch({simHz:60});
+ assert.ok(Math.abs(world.world.timestep-1/60)<1e-6);
+ assert.equal(world.config.simHz,60);
+ const before=world.world.timestep;
+ world.patch({simHz:10});   // below the 30 Hz floor
+ world.patch({simHz:1000}); // above the 240 Hz ceiling
+ world.patch({simHz:'fast' });
+ assert.equal(world.world.timestep,before,'an invalid rate must not touch the solver');
+ world.dispose();
+});
+
+test('behavior time advances by the configured step dt',()=>{
+ const world=new SplashWorld(R,{config:{simHz:60}});
+ const desc=body('blob',[0,0,0],'float');
+ world.spawn([desc]);
+ world.advance(1/60);
+ assert.ok(Math.abs(world.byId.get(desc.id).time-1/60)<1e-9);
+ world.dispose();
+});
+

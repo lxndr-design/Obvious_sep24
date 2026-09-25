@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {createEngine} from './core/engine.js';
 import {InstanceField} from './core/instance-field.js';
+import {PerfGovernor,tierPlan} from './core/governor.js';
 import {BannerConfig} from './banner-config.js';
 import {createSimChannel} from './sim/sim-channel.js';
 import {sineSeries,layoutPositions,applyJitter} from './gen/series.js';
@@ -8,7 +9,7 @@ import {createNoiseChannel} from './gen/noise-channel.js';
 import {finishDisplaced} from './gen/bump-geometry.js';
 import {resolveBumpParams} from './gen/bump3d.js';
 import {PRESETS,presetGeometry} from './presets.js';
-import {createMaterial,setBumpMaterialParams} from './materials/index.js';
+import {createMaterial,setBumpMaterialParams,setBumpDetailEnabled} from './materials/index.js';
 import {cameraPlane,planePoint} from './interaction/pointer-plane.js';
 
 // SplashKit — the callable layer over three.js. DOM-free: the entry wires the
@@ -20,9 +21,22 @@ export function createSplashKit(canvas,initial={}){
  const engine=createEngine({canvas,stage:initial.stage,rendererFactory:initial.rendererFactory,pixelRatioCap:initial.pixelRatioCap});
  // The sim worker feeds the field directly: transferred pose buffers arrive,
  // get wrapped in views, and land in the instance-field read path every frame.
- // The callback only fires once poses return from the worker, so referencing
- // `field` before its declaration below is safe.
- const sim=createSimChannel({onPoses:frame=>field.applyPoses(frame)});
+ // The callback also stamps arrival timing (interpolation alpha) and the
+ // active/sleeping split the HUD reports — counted once, never re-derived.
+ const poseTiming={last:NaN,interval:1000/60};
+ const poseCounts={active:0,sleeping:0};
+ function applyPoses(frame){
+  const now=performance.now();
+  if(Number.isFinite(poseTiming.last))poseTiming.interval=poseTiming.interval*.875+(now-poseTiming.last)*.125;
+  poseTiming.last=now;
+  let active=0,sleeping=0;
+  const n=Math.min(frame.sleep.length,frame.ids.length);
+  for(let k=0;k<n;k++)(frame.sleep[k]===1?sleeping++:active++);
+  poseCounts.active=active;
+  poseCounts.sleeping=sleeping;
+  field.applyPoses(frame);
+ }
+ const sim=createSimChannel({onPoses:frame=>applyPoses(frame)});
  const noise=createNoiseChannel(initial.noiseWorkerFactory?{workerFactory:initial.noiseWorkerFactory}:{});
  // Per-preset bump field config: the 'bump' material buckets for a preset must
  // shade the exact field its displaced geometry was cut with.
@@ -34,6 +48,33 @@ export function createSplashKit(canvas,initial={}){
    :createMaterial(kind),
  });
  const banner=new BannerConfig(initial.banner);
+
+ // PerfGovernor (spec ladder): tier changes apply the whole plan idempotently
+ // — pixel ratio, instance cap (shedding the oldest pooled bodies), sim rate
+ // with pose interpolation, bump fragment detail. The body under a drag
+ // spring is never culled: user intent outranks the budget.
+ const baseCapacity=field.capacity;
+ const basePixelRatioCap=initial.pixelRatioCap??1.75; // mirrors the engine default
+ const governor=new PerfGovernor({getFps:()=>engine.fps,onTier:applyTier});
+ let currentSimHz=120;
+ let draggedId=null;
+ function applyTier(tier){
+  const plan=tierPlan(tier,{basePixelRatioCap,baseCapacity,baseSimHz:120});
+  engine.setPixelRatioCap(plan.pixelRatioCap);
+  if(plan.capacity<field.capacity){
+   const culled=field.cullOldest(Math.max(0,field.used-plan.capacity),{keep:draggedId});
+   if(culled.length)sim.send({type:'despawn',ids:culled});
+  }
+  field.capacity=plan.capacity;
+  if(plan.simHz!==currentSimHz){
+   currentSimHz=plan.simHz;
+   sim.send({type:'config',patch:{simHz:plan.simHz}});
+  }
+  field.setInterpolation(plan.simHz<120);
+  for(const bucket of field.buckets.values()){
+   if(bucket.material==='bump')setBumpDetailEnabled(bucket.mesh.material,plan.bumpDetail);
+  }
+ }
 
  function describe(handle){
   return{
@@ -123,9 +164,10 @@ export function createSplashKit(canvas,initial={}){
 
  // Drag-throw protocol side: the controller computes targets and throw
  // velocity; these only validate-forward. dragRelease without v ends the drag
- // and keeps whatever velocity the spring imparted.
- function drag(id,p){sim.send({type:'drag',id,p});}
- function dragRelease(id,v){sim.send(v?{type:'dragRelease',id,v}:{type:'dragRelease',id});}
+ // and keeps whatever velocity the spring imparted. The live drag id doubles
+ // as the governor's cull protection — a held body is never shed.
+ function drag(id,p){draggedId=id;sim.send({type:'drag',id,p});}
+ function dragRelease(id,v){draggedId=null;sim.send(v?{type:'dragRelease',id,v}:{type:'dragRelease',id});}
 
  // Screen -> world mapping on the interaction plane — camera-facing through
  // the scene origin (or `through` for a drag/drop plane). Returns [x,y,z] or
@@ -191,6 +233,10 @@ export function createSplashKit(canvas,initial={}){
    batches:field.bucketCount,
    queued:sim.pending(),
    bumpTransport:noise.transport(),
+   active:poseCounts.active,
+   sleeping:poseCounts.sleeping,
+   tier:governor.tier,
+   simHz:currentSimHz,
   };
  }
 
@@ -210,9 +256,18 @@ export function createSplashKit(canvas,initial={}){
   camera:engine.camera,
   spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,drag,dragRelease,
   screenToPlane,pickBody,fractalBump,
-  applyPoses:frame=>field.applyPoses(frame),
+  applyPoses,
   stats,dispose,
  };
- engine.start(()=>field.sync(),initial.onFirstFrame);
+ engine.start(()=>{
+  // Interpolation alpha for this frame comes from pose-arrival timing (tier
+  // 3 only): how far into the expected interval the next pose is late.
+  if(field.interpolation.enabled){
+   const since=performance.now()-poseTiming.last;
+   field.interpolation.alpha=Number.isFinite(since)?Math.min(1,Math.max(0,since/poseTiming.interval)):0;
+  }
+  field.sync();
+  governor.tick();
+ },initial.onFirstFrame);
  return kit;
 }

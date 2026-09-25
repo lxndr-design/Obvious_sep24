@@ -108,3 +108,62 @@ test('dispose clears buckets and rejects further work',()=>{
  assert.throws(()=>f.acquire('blob'),/dispose/);
  assert.equal(f.release(a.id),false);
 });
+
+test('cullOldest sheds the oldest bodies (ascending id) and skips a protected id',()=>{
+ const f=field(16);
+ const handles=Array.from({length:5},()=>f.acquire('blob'));
+ assert.deepEqual(f.cullOldest(0),[]);
+ assert.deepEqual(f.cullOldest(-1),[]);
+ const culled=f.cullOldest(2);
+ assert.deepEqual(culled,[handles[0].id,handles[1].id],'spawn order is id order');
+ assert.equal(f.used,3);
+ // The protected id survives even if it is oldest.
+ const culled2=f.cullOldest(2,{keep:handles[2].id});
+ assert.deepEqual(culled2,[handles[3].id,handles[4].id]);
+ assert.equal(f.used,1);
+ assert.ok(f.handles.has(handles[2].id));
+ // Culling more than exists sheds everything live except the protected one.
+ assert.deepEqual(f.cullOldest(10,{keep:handles[2].id}),[]);
+ assert.equal(f.used,1);
+ assert.equal(f.cullOldest(10).length,1); // now nothing is protected
+ assert.equal(f.used,0);
+});
+
+test('interpolation: sync blends between previous and current pose at the frame alpha',()=>{
+ const f=field(4);
+ const h=f.acquire('blob');
+ f.setPose(h,{position:[0,0,0]});
+ f.sync();
+ f.setInterpolation(true);
+ const bucket=f.buckets.get('blob:gloss');
+ // First pose: prev is the enable snapshot [0,0,0], cur moves to [2,0,0] —
+ // alpha .5 lands halfway between them.
+ f.applyPoses({count:1,ids:[h.id],positions:new Float32Array([2,0,0]),quaternions:new Float32Array([0,0,0,1]),sleep:new Uint8Array([0])});
+ f.interpolation.alpha=.5;
+ f.sync();
+ const mid=matrixXY(bucket.mesh,h.slot);
+ assert.ok(Math.abs(mid[0]-1)<1e-6,`expected the enable->pose midpoint x=1, got ${mid[0]}`);
+ // Second pose moves cur to x=4; prev was x=2 — alpha .5 lands at x=3.
+ f.applyPoses({count:1,ids:[h.id],positions:new Float32Array([4,0,0]),quaternions:new Float32Array([0,0,0,1]),sleep:new Uint8Array([0])});
+ f.sync();
+ const blended=matrixXY(bucket.mesh,h.slot);
+ assert.ok(Math.abs(blended[0]-3)<1e-6,`expected x=3 at alpha .5, got ${blended[0]}`);
+ // Alpha 1 snaps to the current pose.
+ f.interpolation.alpha=1;
+ f.sync();
+ assert.deepEqual(matrixXY(bucket.mesh,h.slot),[4,0]);
+});
+
+test('interpolation skips settled bodies — no matrix writes, no version bump',()=>{
+ const f=field(4);
+ const h=f.acquire('blob');
+ f.setPose(h,{position:[0,0,0]});
+ f.sync();
+ f.setInterpolation(true);
+ f.applyPoses({count:1,ids:[h.id],positions:new Float32Array([1,0,0]),quaternions:new Float32Array([0,0,0,1]),sleep:new Uint8Array([1])});
+ f.sync(); // settles the body with its final matrix
+ const bucket=f.buckets.get('blob:gloss');
+ const version=bucket.mesh.instanceMatrix.version;
+ for(let i=0;i<3;i++)f.sync(); // frames with nothing awake
+ assert.equal(bucket.mesh.instanceMatrix.version,version,'sleeping bodies must not rewrite matrices');
+});

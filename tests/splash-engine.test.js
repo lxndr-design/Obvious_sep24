@@ -67,3 +67,24 @@ test('engine tracks a smoothed fps readout',()=>{
  assert.ok(Number.isFinite(engine.fps)&&engine.fps>0,`fps should be a positive number, got ${engine.fps}`);
  engine.dispose();
 });
+
+test('setPixelRatioCap re-applies min(devicePixelRatio, cap) immediately',()=>{
+ const ratios=[];
+ const renderer={
+  setPixelRatio:r=>ratios.push(r),
+  setSize(){},
+  setAnimationLoop(){},
+  render(){},
+  dispose(){},
+  info:{render:{calls:0}},
+ };
+ const engine=createEngine({rendererFactory:()=>renderer});
+ assert.deepEqual(ratios,[1],'construction applies the initial cap (headless dpr 1, cap 1.75)');
+ engine.setPixelRatioCap(0.5); // headless dpr is 1 — cap binds below it
+ assert.deepEqual(ratios,[1,0.5],'the new cap must be applied to the renderer, not just stored');
+ assert.equal(engine.pixelRatioCap,0.5);
+ engine.setPixelRatioCap(4); // above the (headless) device ratio — ratio returns to the device value
+ assert.equal(engine.pixelRatioCap,4);
+ assert.deepEqual(ratios,[1,0.5,1]);
+ engine.dispose();
+});
