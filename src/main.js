@@ -31,7 +31,9 @@ import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
 import {RoomClient,loadIdentity,saveIdentity,STATUS} from './net/client.js';
 import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
+import {LIMITS} from './net/protocol.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
+import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
 import {DitherShader} from './dither.js';
@@ -85,8 +87,9 @@ const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=ne
 // ---- players (Feature 7, U2): presence, self-drag, disconnect grace -----
 const playerGroup=new THREE.Group();scene.add(playerGroup);
 const spawnProbe=avatarForm(RAPIER);
-const entities=new Map(); // playerId → {entity, tag, material}
+const entities=new Map(); // playerId → {entity, tag, bubble, material}
 let selfEntity=null,playerName='',playerRole='guest';
+const chatBubbles=new ChatBubbles(),chatLog=new ChatLog();
 const room=new RoomClient({
  url:(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws',
  identity:loadIdentity(typeof localStorage!=='undefined'?localStorage:null),
@@ -120,7 +123,7 @@ function spawnEntity(player,self=false){
 }
 function despawnEntity(id){
  const entry=entities.get(id);if(!entry)return;
- entry.entity.dispose();entry.material.dispose();playerGroup.remove(entry.entity.group);entry.tag.remove();
+ entry.entity.dispose();entry.material.dispose();playerGroup.remove(entry.entity.group);entry.tag.remove();entry.bubble?.remove();
  entities.delete(id);
  if(id===room.identity.id)selfEntity=null;
 }
@@ -143,6 +146,7 @@ function onRoomEvent(event){
   case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=nameTagLabel(event.player.name,entry.entity.self);updatePlayerBadge();}}break;
   case 'boardOp': if(boardSync.receive(event.op,event.by,event.revision)==='apply')applyRemoteOp(event.op);break;
   case 'roleChange': if(event.playerId===room.identity.id){playerRole=event.role;updatePlayerBadge();}break;
+  case 'chat': showChat(event);break;
   case 'status': case 'lost': updatePlayerBadge();break;
   case 'error': if(event.code==='INVALID'||event.code==='FORBIDDEN')boardSync.rejected();notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
   case 'left': despawnSelf();updatePlayerBadge();notify('You left the board');break;
@@ -242,15 +246,60 @@ function beginRename(){
  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}if(e.key==='Escape'){e.preventDefault();committed=true;updatePlayerBadge();}});
  input.addEventListener('blur',commit);
 }
-function updateTags(){
+// ---- chat (Feature 7, U3): bottom-bar input, entity bubbles, session log ----
+// Bubbles reuse the name tags' popup path: an HTML overlay projected above the
+// author's entity each frame, crisp under the dither. Content is built with
+// textContent only — chat is untrusted input.
+function showChat(event){
+ chatLog.add({id:event.from,name:event.name,text:event.text,at:Date.now()});
+ appendChatLog(event.name,event.text);
+ const entry=entities.get(event.from);
+ if(!entry)return; // a line from a player whose entity is already gone — log keeps it
+ chatBubbles.show(event.from,{name:event.name,text:event.text},performance.now());
+ if(!entry.bubble){entry.bubble=document.createElement('div');entry.bubble.className='chat-bubble';entry.bubble.setAttribute('role','status');$('stage').append(entry.bubble);}
+ entry.bubble.replaceChildren(Object.assign(document.createElement('strong'),{textContent:entry.entity.name}),document.createTextNode(event.text));
+ entry.bubble.hidden=false;
+}
+function stepChatBubbles(now){
+ for(const id of chatBubbles.step(now)){
+  const entry=entities.get(id);
+  if(entry?.bubble){entry.bubble.remove();entry.bubble=null;}
+ }
+}
+function appendChatLog(name,text){
+ const list=$('chat-log');if(!list)return;
+ const item=document.createElement('li'),who=document.createElement('strong');
+ who.textContent=name;item.append(who,document.createTextNode(` ${text}`));
+ list.append(item);
+ while(list.children.length>MAX_LOG_ENTRIES)list.firstChild.remove();
+ if(list.closest('details')?.open)list.scrollTop=list.scrollHeight;
+}
+function sendChatLine(){
+ const composed=composeChatText($('chat-input').value);
+ if(!composed.ok){notify(composed.error);return;}
+ if(room.left||room.status===STATUS.CLOSED){notify('Join the board to chat');return;}
+ // While connecting the room client queues the line and flushes it on welcome.
+ room.sendChat(composed.text);
+ $('chat-input').value='';
+}
+$('chat-form').addEventListener('submit',event=>{event.preventDefault();sendChatLine();});
+$('chat-input').maxLength=LIMITS.MAX_CHAT_CHARS;
+function updateTags(now){
  // Name tags are HTML overlays projected from each entity's head, like the
  // popup messages — crisp under the dither, and easy to hit-test.
- for(const entry of entities.values()){
+ for(const [id,entry] of entities.entries()){
   const point=entry.entity.group.position.clone();point.y+=PLAYER_HEIGHT+.18;point.project(camera);
   const x=(point.x+1)/2*canvas.clientWidth,y=(1-point.y)/2*canvas.clientHeight;
   const visible=point.z<1&&x>=-60&&y>=-60&&x<=canvas.clientWidth+60&&y<=canvas.clientHeight+60;
   entry.tag.hidden=!visible;
   if(visible){entry.tag.style.left=`${x}px`;entry.tag.style.top=`${y}px`;}
+  // A chat bubble rides the same projected point, stacked above the name tag;
+  // its anchor is clamped so the box never rides up under the page header.
+  if(entry.bubble){
+   const size=entry.bubble.getBoundingClientRect();
+   const anchor=clampBubbleAnchor({x,y,width:size.width||180,height:size.height||30,stageWidth:canvas.clientWidth,stageHeight:canvas.clientHeight});
+   entry.bubble.hidden=!visible||!chatBubbles.active(id,now);
+   if(visible){entry.bubble.style.left=`${anchor.x}px`;entry.bubble.style.top=`${anchor.y}px`;}}
  }
 }
 $('rename-player').addEventListener('click',beginRename);
@@ -722,7 +771,7 @@ function tick(now){
  messageHops.step(dt,state.objects,{disabled:presentationOnly||state.paused||reducedMotion.matches||signFocus.active,busy:o=>dragged.has(o)||presentation.motion.has(o),clear:(members,height)=>hopClearance(stacks,members,height)});
  for(const event of messageHops.events){ecology.objectHop(event);if(event.kind==='takeoff')hopPuffs.emit(event.members,p=>ecology.waterAt(p));}
  hopPuffs.step(state.paused?0:dt,camera);
- room.step();updateTags();
+ room.step();stepChatBubbles(now);updateTags(now);
  presentation.withPresentation(()=>messageHops.withPresentation(()=>{
   for(const o of new Set([...presentation.motion.keys(),...messageHops.offsets.keys()]))if(o.hanging)updateCable(o);
   if(state.selected)selectionBox.setFromObject(state.selected.mesh);messages.step(dt,camera,canvas,[...state.objects,...state.holes]);
@@ -734,6 +783,6 @@ function tick(now){
 }
 requestAnimationFrame(tick);$('loading').hidden=true;state.ready=true;
 // Read-only diagnostics and actions are shared with the UI for integration and verification.
-const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,letter:o.letter,board:o.board,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active||boardView.active,boardOpen:boardView.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},players:{status:room.status,name:playerName,role:playerRole,self:selfEntity?{name:playerName,position:selfEntity.group.position.toArray()}:null,remote:[...entities.entries()].filter(([id])=>id!==room.identity.id).map(([id,entry])=>({id,name:entry.entity.name,position:entry.entity.group.position.toArray()}))},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
+const api={snapshot:captureSpace,read:()=>({ready:state.ready,presentationOnly,objects:[...state.objects,...state.holes].map(o=>({id:o.id,type:o.type,properties:o.properties,messageSeen:!!o.messageSeen,gridSize:o.gridSize??null,letter:o.letter,board:o.board,sign:o.sign,signSlot:o.signSlot,seated:o.seated,grandmaVariant:o.grandmaVariant,position:o.mesh.position.toArray(),hanging:o.hanging,cableLength:o.cableLength,anchor:o.anchor?.toArray()??null,velocity:o.body?.linvel()??{x:0,y:0,z:0},rotation:o.mesh.quaternion.toArray(),parts:o.parts.length,foot:o.stacking?.foot??0,head:o.stacking?.head??0,supportedBy:o.support?.id??null,...(o.type==='pool'?{size:o.size}:{})})),paused:state.paused,mouseMode:state.mouseMode,camera:{focusedPole:signFocus.pole?.id??null,locked:presentationOnly||signFocus.active||boardView.active,boardOpen:boardView.active,position:camera.position.toArray(),target:controls.target.toArray(),zoom:camera.zoom},rendering:{sunDirection:sunAngle,lightStrength:sun.intensity/3.8,ditherScale:dither.uniforms.scale.value,inkColor:$('ink-color').value,paperColor:$('paper-color').value,twoTone:!!dither.uniforms.ink.value&&dither.uniforms.scale.value>0},wind:{strength:wind.strength,direction:wind.direction,turbulence:wind.turbulence,trails:windTrails.read()},nature:{...ecology.read(),seedPods:ecology.read().seedPods.map(seed=>{const p=new THREE.Vector3(...seed.position).project(camera);return {...seed,screen:{x:(p.x+1)*canvas.clientWidth/2,y:(1-p.y)*canvas.clientHeight/2}};})},players:{status:room.status,name:playerName,role:playerRole,self:selfEntity?{name:playerName,position:selfEntity.group.position.toArray()}:null,remote:[...entities.entries()].filter(([id])=>id!==room.identity.id).map(([id,entry])=>({id,name:entry.entity.name,position:entry.entity.group.position.toArray()})),chat:{bubbles:[...chatBubbles.bubbles.keys()],entries:chatLog.items.length}},...terrain.read(),renderCalls:renderer.info.render.calls}),add:type=>{if(presentationOnly)throw Error('Presentation is read-only');if(type!=='pool'&&!Object.hasOwn(LABELS,type))throw Error('Unknown shape');const o=addObject(type);if(o)select(o);return o?.id??null;},move:(id,x,z)=>{if(![x,z].every(Number.isFinite))throw Error('Coordinates must be finite');const o=[...state.objects,...state.holes].find(o=>o.id===id);if(!o)throw Error('Unknown object');return placeForm(o,x,z);},project:id=>{const o=[...state.objects,...state.holes].find(o=>o.id===id);const p=(o?o.mesh.position.clone():new THREE.Vector3(POOL.x,-.19,POOL.z)).project(camera);return{x:(p.x+1)/2*canvas.clientWidth,y:(1-p.y)/2*canvas.clientHeight};},reset};
 window.whitewater=api;
 if(document.modelContext?.registerTool){const lifecycle=new AbortController();window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});for(const tool of [{name:'export_space',description:'Export the current space including objects, messages, environment and camera.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>captureSpace()},{name:'read_scene',description:'Read the shapes and their positions in the scene.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>api.read()},{name:'add_form',description:'Add a white geometric form to an available floor position.',inputSchema:{type:'object',properties:{shape:{type:'string',enum:[...Object.keys(LABELS),'pool']}},required:['shape'],additionalProperties:false},execute:input=>({id:api.add(input.shape)})},{name:'move_form',description:"Reposition a floor form or a hanging form’s ceiling anchor to a grid position if the path is clear.",inputSchema:{type:'object',properties:{id:{type:'number'},x:{type:'number'},z:{type:'number'}},required:['id','x','z'],additionalProperties:false},execute:input=>({moved:api.move(input.id,input.x,input.z)})}]){try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(console.warn);}catch(error){console.warn(error);}}}
