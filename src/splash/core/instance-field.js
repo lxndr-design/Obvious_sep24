@@ -24,12 +24,20 @@ export class InstanceField{
   this.nextId=1;
   this.used=0;
   this.disposed=false;
+  // Governor tier-3 pose interpolation: when the sim runs at 60 Hz, sync()
+  // blends each awake body between its previous and current sim pose (alpha
+  // from the kit's arrival timing) instead of snapping on arrival frames.
+  this.interpolation={enabled:false,alpha:0};
   // Frame-loop temps, allocated once for the field's whole life.
   this._m=new THREE.Matrix4();
   this._q=new THREE.Quaternion();
   this._v=new THREE.Vector3();
   this._s=new THREE.Vector3();
   this._c=new THREE.Color();
+  this._pv=new THREE.Vector3();
+  this._pq=new THREE.Quaternion();
+  this._cq=new THREE.Quaternion();
+  this._iq=new THREE.Quaternion();
  }
  get bucketCount(){return this.buckets.size;}
 
@@ -54,6 +62,7 @@ export class InstanceField{
   const handle={
    id:this.nextId++,preset:name,material,bucket:key,slot,
    position:[0,0,0],rotation:[0,0,0,1],scale:1,
+   prevPosition:[0,0,0],prevRotation:[0,0,0,1], // interpolation source (tier 3)
    color:opts.color??preset.color,
    behavior:opts.behavior??preset.behavior,
    seed:opts.seed??this.nextId,
@@ -93,6 +102,22 @@ export class InstanceField{
   return ids;
  }
 
+ // Governor tier-2 lever: shed the oldest live bodies (ascending id — spawn
+ // order) back toward a target count, pooled like any release. `keep` protects
+ // one id (the body under a drag spring). Returns the released ids for the
+ // caller's sim despawn message.
+ cullOldest(count,{keep}={}){
+  if(!(count>0))return[];
+  const ids=[];
+  for(const handle of this.handles.values()){ // Map order = ascending id
+   if(handle.id===keep)continue;
+   ids.push(handle.id);
+   this.release(handle);
+   if(ids.length>=count)break;
+  }
+  return ids;
+ }
+
  // Editor-time placement: spawn, DnD ghosts, drag targets.
  setPose(handle,pose={}){
   const bucket=this.buckets.get(handle.bucket);
@@ -104,14 +129,26 @@ export class InstanceField{
  }
 
  // Sim frame consumer (protocol "poses" payload): copies poses for awake
- // bodies, skips matrix work for bodies already asleep and settled.
+ // bodies, skips matrix work for bodies already asleep and settled. With
+ // interpolation enabled, the outgoing pose is kept as the blend source
+ // first — in-place, never allocated.
  applyPoses(frameMsg){
   const{ids,positions,quaternions,sleep}=frameMsg;
+  const interp=this.interpolation.enabled;
   for(let k=0;k<ids.length;k++){
    const handle=this.handles.get(ids[k]);
    if(!handle)continue;
    handle.asleep=sleep[k]===1;
    if(handle.asleep&&handle.synced&&!handle.dirty)continue;
+   if(interp){
+    handle.prevPosition[0]=handle.position[0];
+    handle.prevPosition[1]=handle.position[1];
+    handle.prevPosition[2]=handle.position[2];
+    handle.prevRotation[0]=handle.rotation[0];
+    handle.prevRotation[1]=handle.rotation[1];
+    handle.prevRotation[2]=handle.rotation[2];
+    handle.prevRotation[3]=handle.rotation[3];
+   }
    const o=k*3,qo=k*4;
    handle.position[0]=positions[o];
    handle.position[1]=positions[o+1];
@@ -126,23 +163,67 @@ export class InstanceField{
   }
  }
 
+ // Enables pose blending; sources snap to current poses first so the first
+ // interpolated frame never blends from a zeroed placeholder.
+ setInterpolation(enabled){
+  if(enabled===this.interpolation.enabled)return;
+  this.interpolation.enabled=enabled;
+  this.interpolation.alpha=0;
+  if(enabled)for(const handle of this.handles.values()){
+   handle.prevPosition[0]=handle.position[0];
+   handle.prevPosition[1]=handle.position[1];
+   handle.prevPosition[2]=handle.position[2];
+   handle.prevRotation[0]=handle.rotation[0];
+   handle.prevRotation[1]=handle.rotation[1];
+   handle.prevRotation[2]=handle.rotation[2];
+   handle.prevRotation[3]=handle.rotation[3];
+  }
+ }
+
  // Writes matrices for dirty handles only; instanceMatrix.version bumps once
  // per bucket with actual changes, which is the observable write-skip signal.
+ // With interpolation enabled (governor tier 3), every live awake slot is
+ // rewritten each frame between prev and current pose at the frame alpha —
+ // a 60 Hz sim feeding a 60 Hz renderer drifts, and the blend hides the beat.
  sync(){
+  const interp=this.interpolation.enabled;
   for(const bucket of this.buckets.values()){
-   if(!bucket.dirtyIds.size)continue;
-   for(const id of bucket.dirtyIds){
-    const handle=this.handles.get(id);
-    this._v.set(handle.position[0],handle.position[1],handle.position[2]);
-    this._q.set(handle.rotation[0],handle.rotation[1],handle.rotation[2],handle.rotation[3]);
-    this._s.setScalar(handle.scale);
-    this._m.compose(this._v,this._q,this._s);
-    bucket.mesh.setMatrixAt(handle.slot,this._m);
-    handle.dirty=false;
-    handle.synced=true; // lets applyPoses skip settled bodies on the next frame
+   if(!interp){
+    if(!bucket.dirtyIds.size)continue;
+    for(const id of bucket.dirtyIds){
+     const handle=this.handles.get(id);
+     this._v.set(handle.position[0],handle.position[1],handle.position[2]);
+     this._q.set(handle.rotation[0],handle.rotation[1],handle.rotation[2],handle.rotation[3]);
+     this._s.setScalar(handle.scale);
+     this._m.compose(this._v,this._q,this._s);
+     bucket.mesh.setMatrixAt(handle.slot,this._m);
+     handle.dirty=false;
+     handle.synced=true; // lets applyPoses skip settled bodies on the next frame
+    }
+    bucket.dirtyIds.clear();
+    bucket.mesh.instanceMatrix.needsUpdate=true;
+    continue;
    }
-   bucket.dirtyIds.clear();
-   bucket.mesh.instanceMatrix.needsUpdate=true;
+   const alpha=this.interpolation.alpha;
+   let wrote=false;
+   for(let slot=0;slot<bucket.highWater;slot++){
+    const handle=bucket.bySlot[slot];
+    if(!handle)continue; // free slot inside the high-water range
+    if(handle.asleep&&handle.synced&&!handle.dirty)continue; // settled: keep last matrix
+    this._pv.set(handle.prevPosition[0],handle.prevPosition[1],handle.prevPosition[2]);
+    this._v.set(handle.position[0],handle.position[1],handle.position[2]);
+    this._pv.lerp(this._v,alpha);
+    this._pq.set(handle.prevRotation[0],handle.prevRotation[1],handle.prevRotation[2],handle.prevRotation[3]);
+    this._cq.set(handle.rotation[0],handle.rotation[1],handle.rotation[2],handle.rotation[3]);
+    this._iq.slerpQuaternions(this._pq,this._cq,alpha);
+    this._s.setScalar(handle.scale);
+    this._m.compose(this._pv,this._iq,this._s);
+    bucket.mesh.setMatrixAt(slot,this._m);
+    handle.dirty=false;
+    handle.synced=true;
+    wrote=true;
+   }
+   if(wrote)bucket.mesh.instanceMatrix.needsUpdate=true;
   }
  }
 

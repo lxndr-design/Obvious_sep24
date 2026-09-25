@@ -11,9 +11,12 @@ export function formatStats(stats){
   `FPS ${s.fps??'—'}`,
   `Draw calls ${s.drawCalls??'—'}`,
   `Instances ${formatCount(s.instances??0)}`,
+  `Active ${s.active===undefined?'—':formatCount(s.active)}`,
+  `Sleeping ${s.sleeping===undefined?'—':formatCount(s.sleeping)}`,
   `Batches ${s.batches??'—'}`,
   `Queue ${s.queued??'—'}`,
   `Bump ${s.bumpTransport??'—'}`,
+  `Sim ${s.simHz?`${s.simHz} Hz`:'—'}`,
   `Tier ${readTier(s)??'—'}`,
  ];
 }

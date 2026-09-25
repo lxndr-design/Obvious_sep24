@@ -18,8 +18,15 @@ export const SIM_DT=1/120;
 // not spiral into an unbounded catch-up loop (same clamp as pendulums.step).
 export const MAX_FRAME_DT=.05;
 
+// Step dt from a sim rate; out-of-range rates are rejected (null) so a bad
+// governor or editor value cannot destabilize the solver.
+export function stepDtFor(hz){
+ return(typeof hz==='number'&&Number.isFinite(hz)&&hz>=30&&hz<=240)?1/hz:null;
+}
+
 export const WORLD_DEFAULTS={
  gravity:[0,-9.81,0],
+ simHz:120, // sim step rate — the governor's tier-3 lever halves it to 60
  linearDamping:.05,angularDamping:.1,
  friction:.4,restitution:.25,bounceRestitution:.9,
  floorY:-6,boundsRadius:60,boundsSpring:6,
@@ -81,9 +88,14 @@ export class SplashWorld{
   this.config={...WORLD_DEFAULTS,...config};
   this.capacity=capacity;
   this.world=new R.World({x:this.config.gravity[0],y:this.config.gravity[1],z:this.config.gravity[2]});
-  this.world.timestep=SIM_DT;
-  this.world.integrationParameters.numSolverIterations=8;
-  this.world.integrationParameters.maxCcdSubsteps=4;
+  // Solver at Rapier's default 4 iterations (8 was overspec for a banner)
+  // and CCD substeps off: nothing in the preset table uses CCD, so the
+  // budget only paid for substeps it never took.
+  this.world.integrationParameters.numSolverIterations=4;
+  this.world.integrationParameters.maxCcdSubsteps=0;
+  this.stepDt=stepDtFor(this.config.simHz)??SIM_DT;
+  this.config.simHz=1/this.stepDt; // clamp the stored config to what applies
+  this.world.timestep=this.stepDt;
   this.accumulator=0;
   this.time=0;
   this.frame=0;
@@ -191,7 +203,16 @@ export class SplashWorld{
  patch(patch){
   const floorMoved=patch.floorY!==undefined&&patch.floorY!==this.config.floorY;
   for(const[key,value]of Object.entries(patch)){
+   if(key==='simHz')continue; // applied below with range validation
    if(key in this.config)this.config[key]=value;
+  }
+  if(patch.simHz!==undefined){
+   const dt=stepDtFor(patch.simHz);
+   if(dt){ // out-of-range rates keep the current step — no destabilized solver
+    this.config.simHz=patch.simHz;
+    this.stepDt=dt;
+    this.world.timestep=dt;
+   }
   }
   if(patch.gravity){
    const[x,y,z]=this.config.gravity;
@@ -277,7 +298,7 @@ export class SplashWorld{
    }else if(behavior||ptrActive){
     // Velocity is only consumed by behavior forces and the pointer term.
     const v=body.linvel();
-    if(behavior)forced=behavior(b,p,v,SIM_DT,cfg,out)??true;
+    if(behavior)forced=behavior(b,p,v,this.stepDt,cfg,out)??true;
     if(ptrActive){
      const dx=ptr.p[0]-p.x,dy=ptr.p[1]-p.y,dz=ptr.p[2]-p.z;
      const d=Math.hypot(dx,dy,dz),reach=ptr.radius+b.extent;
@@ -304,7 +325,7 @@ export class SplashWorld{
     body.resetForces(false); // clear a stale force without waking the body
    }
    b.forced=forced;
-   b.time+=SIM_DT;
+   b.time+=this.stepDt;
   }
  }
 
@@ -313,12 +334,12 @@ export class SplashWorld{
  advance(dt){
   this.accumulator+=Math.min(dt,MAX_FRAME_DT);
   let steps=0;
-  while(this.accumulator+1e-10>=SIM_DT){
+  while(this.accumulator+1e-10>=this.stepDt){
    this.applyForces();
    this.world.step();
-   this.time+=SIM_DT;
+   this.time+=this.stepDt;
    this.frame++;
-   this.accumulator-=SIM_DT;
+   this.accumulator-=this.stepDt;
    steps++;
   }
   return steps;

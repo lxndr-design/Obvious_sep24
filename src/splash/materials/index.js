@@ -52,6 +52,7 @@ function iridescentMaterial(){
 function bumpDefines(params){
  const cfg=resolveBumpParams(params);
  return{
+  SPLASH_BUMP_DETAIL:'1',
   SPLASH_BUMP_OCTAVES:String(cfg.octaves),
   SPLASH_BUMP_LACUNARITY:cfg.lacunarity.toFixed(6),
   SPLASH_BUMP_GAIN:cfg.gain.toFixed(6),
@@ -88,6 +89,7 @@ export function fractalBumpMaterial(params){
    .replace('#include <common>','#include <common>\nvarying vec3 vSplashLocal;\nvarying vec3 vSplashBasis0;\nvarying vec3 vSplashBasis1;\nvarying vec3 vSplashBasis2;\n'+FBM3_GLSL)
    .replace('#include <normal_fragment_begin>',[
     '#include <normal_fragment_begin>',
+    '#if SPLASH_BUMP_DETAIL', // governor tier 4 drops this define — the four fBm taps per fragment are the tier's cost
     '{',
     ' vec3 splashP=vSplashLocal;',
     ' float splashH=splashFbm(splashP,SPLASH_BUMP_DETAIL_FREQ,SPLASH_BUMP_SEED);',
@@ -102,6 +104,7 @@ export function fractalBumpMaterial(params){
     ' splashGView-=normal*dot(splashGView,normal);',
     ' normal=normalize(normal-SPLASH_BUMP_STRENGTH*splashGView);',
     '}',
+    '#endif',
    ].join('\n'));
  };
  return m;
@@ -114,5 +117,16 @@ export function setBumpMaterialParams(material,params){
   throw new TypeError('setBumpMaterialParams expects a fractal-bump material');
  }
  material.defines=bumpDefines(params);
+ material.needsUpdate=true;
+}
+
+// Governor tier-4 lever: drop the fragment micro-detail tier (four fBm taps
+// per fragment) while keeping the displaced geometry. Recompiles on next
+// render; tierPlan re-enables it on recovery.
+export function setBumpDetailEnabled(material,enabled){
+ if(!material.defines||material.defines.SPLASH_BUMP_SEED===undefined){
+  throw new TypeError('setBumpDetailEnabled expects a fractal-bump material');
+ }
+ material.defines.SPLASH_BUMP_DETAIL=enabled?'1':'0';
  material.needsUpdate=true;
 }

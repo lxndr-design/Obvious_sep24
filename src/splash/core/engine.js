@@ -9,7 +9,14 @@ export function createEngine({canvas,stage,rendererFactory,pixelRatioCap=1.75}={
  const renderer=rendererFactory
   ?rendererFactory({canvas})
   :new THREE.WebGLRenderer({canvas,antialias:false,alpha:false,powerPreference:'high-performance'});
- renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio??1,pixelRatioCap));
+ let ratioCap=pixelRatioCap;
+ // The governor's tier-1 lever: re-cap the ratio live (floor 1.0 lives in the
+ // tier plan). Resizing and rendering pick the new ratio up on their own.
+ function setPixelRatioCap(cap){
+  ratioCap=cap;
+  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio??1,ratioCap));
+ }
+ setPixelRatioCap(ratioCap);
  const{scene,camera}=createSplashScene();
  let tick=null,onFirstFrame=null,running=false,frames=0,fps=NaN,last=NaN;
 
@@ -43,6 +50,8 @@ export function createEngine({canvas,stage,rendererFactory,pixelRatioCap=1.75}={
   renderer,scene,camera,
   get fps(){return fps;},
   get frames(){return frames;},
+  get pixelRatioCap(){return ratioCap;},
+  setPixelRatioCap,
   start(nextTick,onFirst){
    tick=nextTick??null;
    onFirstFrame=onFirst??null;

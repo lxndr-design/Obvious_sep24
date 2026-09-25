@@ -4,15 +4,18 @@ import {formatStats} from '../src/splash/editor/hud.js';
 
 test('formatStats renders every metric the kit reports',()=>{
  const lines=formatStats({
-  fps:60,drawCalls:5,instances:20000,batches:3,queued:0,bumpTransport:'worker',tier:2,
+  fps:60,drawCalls:5,instances:20000,batches:3,queued:0,bumpTransport:'worker',tier:2,active:18432,sleeping:1568,simHz:120,
  });
  assert.deepEqual(lines,[
   'FPS 60',
   'Draw calls 5',
   'Instances 20,000',
+  'Active 18,432',
+  'Sleeping 1,568',
   'Batches 3',
   'Queue 0',
   'Bump worker',
+  'Sim 120 Hz',
   'Tier 2',
  ]);
 });
@@ -23,9 +26,12 @@ test('formatStats shows dashes for absent metrics — never invented values',()=
   'FPS —',
   'Draw calls —',
   'Instances 0', // zero instances is real data, not a missing metric
+  'Active —',
+  'Sleeping —',
   'Batches —',
   'Queue —',
   'Bump —',
+  'Sim —',
   'Tier —', // the governor has not published a tier yet
  ]);
 });
