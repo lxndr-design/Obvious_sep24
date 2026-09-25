@@ -190,3 +190,19 @@ test('kit exposes the engine camera for screen→world projection',()=>{
  assert.ok(kit.camera instanceof THREE.PerspectiveCamera);
  kit.dispose();
 });
+
+test('pose counts respect the message count, not the capacity-sized buffers',()=>{
+ const kit=kitDriven();
+ const h=kit.spawn('ico');
+ // The worker transfers capacity-sized views (here 64) with count = 2 valid
+ // entries; garbage zeros past count must not report as active bodies.
+ kit.applyPoses({
+  count:2,ids:new Uint32Array([h.id,999]),
+  positions:new Float32Array(64*3),quaternions:new Float32Array(64*4),
+  sleep:new Uint8Array([0,1]),frame:1,
+ });
+ assert.equal(kit.stats().active,1);
+ assert.equal(kit.stats().sleeping,1);
+ assert.equal(kit.stats().instances,1,'only spawned handles track instances');
+ kit.dispose();
+});

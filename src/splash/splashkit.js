@@ -30,7 +30,9 @@ export function createSplashKit(canvas,initial={}){
   if(Number.isFinite(poseTiming.last))poseTiming.interval=poseTiming.interval*.875+(now-poseTiming.last)*.125;
   poseTiming.last=now;
   let active=0,sleeping=0;
-  const n=Math.min(frame.sleep.length,frame.ids.length);
+  // count is the valid-entry number; ids/sleep are views over capacity-sized
+  // transfer buffers — counting buffer length would report the whole pool.
+  const n=Math.min(frame.count??frame.ids.length,frame.sleep.length,frame.ids.length);
   for(let k=0;k<n;k++)(frame.sleep[k]===1?sleeping++:active++);
   poseCounts.active=active;
   poseCounts.sleeping=sleeping;
