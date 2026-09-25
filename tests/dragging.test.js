@@ -11,6 +11,9 @@ import {HangingFocus} from '../src/hanging-focus.js';
 await R.init();
 function setup(){const c=new CollisionScene(R),s=new StackScene(c);const add=(type,x,z)=>{const f=makeForm(type,R),mesh=new THREE.Mesh(f.geometry,new THREE.MeshStandardMaterial());mesh.position.set(x,f.height/2,z);const o={...f,mesh,type};c.objects.push(o);return o;};return {c,s,add};}
 const target=(o,x,z)=>new THREE.Vector3(x,o.mesh.position.y,z);
+// The focus pass gates on the camera seeing its subject; tests drive it with a
+// rig that frames the forms under test.
+const focusCamera=(x,z)=>{const camera=new THREE.OrthographicCamera(-11,11,8,-8,.1,201);camera.position.set(x,20,z+14);camera.lookAt(x,0,z);return camera;};
 test('blocked drag leaves the exact last valid position, then escapes to a free destination across the obstruction',()=>{
  const {s,add}=setup(),a=add('box',-8,0),b=add('box',-6,0),start=a.mesh.position.clone();
  assert.equal(dragFloor(s,a,target(a,-6,0)).moved,false);assert.deepEqual(a.mesh.position.toArray(),start.toArray(),'no clipped movement toward the blocker');
@@ -41,8 +44,9 @@ test('ghosts have no hit target or collider and relocation fading restores origi
 test('hanging focus masks only hanging geometry and keeps ground forms as depth occluders',()=>{
  const {add,c}=setup(),a=add('sphere',-9,0),b=add('box',-6,0),focus=new HangingFocus();a.hanging=true;
  let current=null,renders=0;const renderer={getRenderTarget:()=>current,setRenderTarget:t=>current=t,clear:()=>{},render:()=>renders++};
- focus.resize(800,600);assert.ok(focus.render(renderer,new THREE.Camera(),c.objects));assert.equal(focus.proxies.get(a).material,focus.white);assert.equal(focus.proxies.get(b).material,focus.black);assert.equal(current,null);assert.equal(renders,1);
- a.hanging=false;assert.equal(focus.render(renderer,new THREE.Camera(),c.objects),false);assert.equal(renders,1);focus.target.dispose();focus.white.dispose();focus.black.dispose();
+ const camera=focusCamera(-7.5,0);
+ focus.resize(800,600);assert.ok(focus.render(renderer,camera,c.objects));assert.equal(focus.proxies.get(a).material,focus.white);assert.equal(focus.proxies.get(b).material,focus.black);assert.equal(current,null);assert.equal(renders,1);
+ a.hanging=false;assert.equal(focus.render(renderer,camera,c.objects),false);assert.equal(renders,1);focus.target.dispose();focus.white.dispose();focus.black.dispose();
 });
 
 test('rotation easing follows a rigid stack arc, settles quickly, and restores collision poses',()=>{
@@ -69,7 +73,7 @@ test('a failed render cannot accumulate visual offsets, turns or faded materials
 });
 test('drag ghosts and hanging masks follow replacement geometry after joins change',()=>{
  const {add,c}=setup(),o=add('birdbath',-8,0),ghost=new DragGhost(new THREE.Scene()),focus=new HangingFocus();o.hanging=true;ghost.begin([o]);
- const camera=new THREE.Camera();let target=null;const renderer={getRenderTarget:()=>target,setRenderTarget:t=>target=t,clear(){},render(){}};
+ const camera=focusCamera(-8,0);let target=null;const renderer={getRenderTarget:()=>target,setRenderTarget:t=>target=t,clear(){},render(){}};
  focus.render(renderer,camera,c.objects);const old=o.geometry,next=new THREE.BoxGeometry();o.geometry=next;o.mesh.geometry=next;old.dispose();
  ghost.show(new THREE.Vector3());focus.render(renderer,camera,c.objects);
  assert.equal(ghost.group.children[0].geometry,next);assert.equal(focus.proxies.get(o).geometry,next);
