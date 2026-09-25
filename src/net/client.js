@@ -124,6 +124,22 @@ export class RoomRoster {
   }
 }
 
+// Share links (U4): a minted invite token becomes a URL fragment. Hash, not
+// query — fragments never reach server logs or Referer headers.
+export function shareLinkUrl(base, token) {
+  const url = new URL(base);
+  url.hash = `join=${token}`;
+  return url.toString();
+}
+
+// The join side: read `#join=<token>` out of a location hash. Accepts only the
+// token's own character set; anything else (any other fragment) is not a link.
+export function readJoinToken(hash) {
+  if (typeof hash !== 'string') return null;
+  const match = /^#join=([A-Za-z0-9._-]+)$/.exec(hash);
+  return match ? match[1] : null;
+}
+
 export class RoomClient {
   // connect(url) → ws-like socket with send/close plus onopen/onmessage/onclose/
   // onerror assignment (browser WebSocket and the `ws` package both qualify).
@@ -223,6 +239,25 @@ export class RoomClient {
     this.send({kind: 'claim', passphrase});
   }
 
+  // Governance actions (U4): thin, queueable sends. The server enforces every
+  // role rule — these only shape messages, and FORBIDDEN replies arrive as
+  // ordinary error events.
+  changeRole(playerId, role) {
+    this.send({kind: 'roleChange', playerId, role});
+  }
+
+  kick(playerId) {
+    this.send({kind: 'kick', playerId});
+  }
+
+  ban(playerId) {
+    this.send({kind: 'ban', playerId});
+  }
+
+  mintLink(role) {
+    this.send({kind: 'mintLink', role});
+  }
+
   // Editing the display name re-hellos the live socket; the server broadcasts
   // the rename as a presence update (protocol: rejoin refreshes name).
   rename(name) {
@@ -248,6 +283,7 @@ export class RoomClient {
       case 'chat': return this.emit({type: 'chat', from: message.from, name: message.name, text: message.text});
       case 'boardOp': return this.emit({type: 'boardOp', op: message.op, by: message.by, revision: message.revision});
       case 'roleChange': return this.emit({type: 'roleChange', playerId: message.playerId, role: message.role, by: message.by});
+      case 'shareLink': return this.emit({type: 'share-link', role: message.role, token: message.token});
       case 'error': return this.onError(message);
       default: return;
     }
