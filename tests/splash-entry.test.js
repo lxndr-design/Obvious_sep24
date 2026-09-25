@@ -37,6 +37,23 @@ test('splash entry owns its CSS, boots SplashKit, and never imports app glue',()
  assert.doesNotMatch(entry,/import ['"]\.\/entry\.js/);
 });
 
+test('splash entry wires cursor physics: controller, capture, cancel and context menu',()=>{
+ const entry=read('src','splash-entry.js');
+ assert.match(entry,/createPointerController/); // the DOM-free state machine
+ assert.match(entry,/pointermove/);
+ assert.match(entry,/pointerdown/);
+ assert.match(entry,/pointerup/);
+ assert.match(entry,/pointercancel/); // drags must end even when the pointer is lost
+ assert.match(entry,/setPointerCapture/); // drags survive leaving the canvas
+ assert.match(entry,/contextmenu/);
+ assert.match(entry,/preventDefault/); // right-drag repels, no menu
+ // The editor's stats HUD is the perf readout; the entry adds only the DnD
+ // ghost preview beside the editor surface.
+ assert.doesNotMatch(entry,/splash-stats/);
+ assert.match(entry,/installGhostPreview/);
+ assert.match(entry,/createEditor/);
+});
+
 test('index.html keeps the birdbath entry and only gains the splash cross-link',()=>{
  const html=read('index.html');
  assert.match(html,/src="\/src\/entry\.js"/);

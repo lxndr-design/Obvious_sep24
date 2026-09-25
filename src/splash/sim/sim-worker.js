@@ -45,6 +45,8 @@ const HANDLERS={
  config:msg=>world.patch(msg.patch),
  pointer:msg=>world.setPointer(msg.mode,msg.p,msg.strength,msg.radius),
  impulse:msg=>world.impulse(msg),
+ drag:msg=>world.drag(msg.id,msg.p),
+ dragRelease:msg=>world.releaseDrag(msg.id,msg.v),
  return(msg){
   // Buffers come back detached from the consumer; re-arm them as a set.
   pool.push({
