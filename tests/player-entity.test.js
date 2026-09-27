@@ -8,10 +8,10 @@ import {makeForm} from '../src/shapes.js';
 import {
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
+  SELF_RING_COLOR,
   avatarForm,
   avatarPlacement,
   createPlayerEntity,
-  nameTagLabel,
   pickSpawnSpot,
   spawnCandidates,
 } from '../src/player-entity.js';
@@ -123,7 +123,21 @@ test('setLeaving fades the per-entity material and resets cleanly', () => {
   entity.dispose();
 });
 
-test('name tags mark the local player', () => {
-  assert.equal(nameTagLabel('Bo'), 'Bo');
-  assert.equal(nameTagLabel('Bo', true), 'Bo (you)');
+test('the self unit adds a flat gold ring around the feet; remote players stay a two-mesh figure', () => {
+  const material = new THREE.MeshStandardMaterial();
+  const self = createPlayerEntity({name: 'Bo', material, self: true});
+  assert.equal(self.group.children.length, 3); // body + head + ring
+  const ring = self.ring;
+  assert.ok(ring && ring.isMesh, 'the ring is a mesh');
+  assert.ok(self.group.children.includes(ring));
+  assert.equal(ring.material.color.getHex(), SELF_RING_COLOR);
+  assert.ok(Math.abs(ring.rotation.x + Math.PI / 2) < 1e-9); // flat on the ground
+  assert.ok(ring.position.y > 0 && ring.position.y < .05); // hugging the feet, above ground
+  assert.ok(!ring.castShadow); // a ground marker casts no shadow
+
+  const other = createPlayerEntity({name: 'Al', material});
+  assert.equal(other.group.children.length, 2); // the two-mesh invariant holds for remote players
+  assert.equal(other.ring, null);
+  self.dispose();
+  other.dispose();
 });
