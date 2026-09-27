@@ -72,6 +72,7 @@ let spacesInstalled=false;
 // suspended objects unpin for editors (they render pinned for viewers), the
 // spaces capture surface installs, and the read-only canvas label reverts.
 function applyEditingMode(){
+ presentationOnly=computeReadOnly();
  document.body.classList.toggle('presentation-only',presentationOnly);
  messages.allowLocked=presentationOnly;
  canvas.setAttribute('aria-label',presentationOnly?'Eternity space. Hover over objects to read their messages.':canvasLabel);
