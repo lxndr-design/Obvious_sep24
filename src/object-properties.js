@@ -9,7 +9,11 @@ export function applyMaterialProperties(object){
  if(p.emittance>0){if(!object.emissionLight){object.emissionLight=new THREE.PointLight(0xffffff,0,5,2);object.mesh.add(object.emissionLight);}object.emissionLight.intensity=p.emittance*14;}
  else if(object.emissionLight){object.emissionLight.removeFromParent();object.emissionLight.dispose();object.emissionLight=null;}
 }
-export const canManipulate=(object,members=[object])=>!!object&&!members.some(o=>o.properties?.locked);
+// Whether the viewer may act on the object: any locked member of the stack
+// blocks the gesture — except the admin (post-release D2), who edits
+// everything. The role parameter defaults to 'guest', the most restrictive
+// role, so a call site that forgets to thread it fails closed.
+export const canManipulate=(object,members=[object],role='guest')=>!!object&&(role==='admin'||!members.some(o=>o.properties?.locked));
 export class MessagePlayer {
  constructor(random=Math.random){this.random=random;this.object=null;this.index=0;this.elapsed=0;}
  enter(object){if(this.object!==object){this.object=object;this.index=0;this.elapsed=0;}}

@@ -19,6 +19,17 @@ test('material settings are independent, change sheen and tone, and add and remo
 test('a locked member prevents moving its base stack but does not lock an unrelated object',()=>{
  const base={properties:properties()},top={properties:properties()},other={properties:properties()};top.properties.locked=true;assert.equal(canManipulate(base,[base,top]),false);assert.equal(canManipulate(top),false);assert.equal(canManipulate(other),true);top.properties.locked=false;assert.equal(canManipulate(base,[base,top]),true);
 });
+test('the admin works past object locks; other roles stay locked and the default fails closed',()=>{
+ const locked={properties:properties()};locked.properties.locked=true;
+ // Post-release D2: guaranteed admin edit rights — locks bind everyone else.
+ assert.equal(canManipulate(locked,[locked],'admin'),true);
+ assert.equal(canManipulate(locked,[locked],'editor'),false);
+ assert.equal(canManipulate(locked,[locked],'guest'),false);
+ assert.equal(canManipulate(locked,[locked],undefined),false);
+ // A call site that forgets to thread the role behaves as a guest.
+ assert.equal(canManipulate(locked,[locked]),false);
+ assert.equal(canManipulate(null,[null],'admin'),false);
+});
 test('joined pools retain independent lining materials',()=>{
  const layout=new HoleLayout();layout.set([{id:1,x:0,z:0,size:2},{id:2,x:2,z:0,size:2}]);
  const terrain=new HoleTerrain(new THREE.Scene(),new THREE.MeshStandardMaterial()),a=new THREE.MeshStandardMaterial(),b=new THREE.MeshStandardMaterial();terrain.materialForHole=id=>id===1?a:b;terrain.rebuild(layout);

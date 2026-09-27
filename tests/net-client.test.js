@@ -425,19 +425,19 @@ test('rename persists immediately and re-hellos the live socket', () => {
   assert.equal(hellos[1].name, 'Meadow Walker');
 });
 
-test('chat, boardOp and claim reach the wire with their protocol shapes', () => {
+test('chat and boardOp reach the wire with their protocol shapes', () => {
   const { client, sockets } = harness();
   client.connect();
   sockets[0].open();
   sockets[0].fromServer(welcomeMessage());
   client.sendChat(' hi ');
   client.sendBoardOp({ type: 'update', objectId: 'form-3', data: { x: 1 } });
-  client.claim('open sesame');
-  assert.deepEqual(sockets[0].sent.slice(-3), [
+  assert.deepEqual(sockets[0].sent.slice(-2), [
     { kind: 'chat', text: ' hi ' },
     { kind: 'boardOp', op: { type: 'update', objectId: 'form-3', data: { x: 1 } } },
-    { kind: 'claim', passphrase: 'open sesame' },
   ]);
+  // The claim transport is gone — presence bootstrap owns the admin role.
+  assert.equal(client.claim, undefined);
 });
 
 // ---- roster unit ----------------------------------------------------------

@@ -31,7 +31,7 @@ import {HOUSEHOLD_MODELS} from './household.js';
 import {PLANTS} from './furnishings.js';
 import {RoomClient,loadIdentity,saveIdentity,STATUS,readJoinToken} from './net/client.js';
 import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
-import {LIMITS} from './net/protocol.js';
+import {LIMITS,roleAtLeast} from './net/protocol.js';
 import {createGovernance} from './governance.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
 import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
@@ -56,9 +56,32 @@ import {SeedSlingshot,SlingGuide} from './slingshot.js';
 import {SettleSolver,releaseVelocity,trackSample} from './settle.js';
 const $=id=>document.getElementById(id);
 const canvas=$('scene');
-const presentationOnly=new URLSearchParams(location.search).has('view')||(import.meta.env.PROD&&!new URLSearchParams(location.search).has('edit'));
+const canvasLabel=canvas.getAttribute('aria-label');
+let playerRole='guest'; // adopted from the room's welcome and roleChange frames
+const viewMode=new URLSearchParams(location.search).has('view'); // explicit read-only link
+// Editing is role-gated (post-release D2): editors and admins edit, guests get
+// the read-only presentation; ?view forces read-only for every role. The
+// verdict recomputes on every role adoption — see applyEditingMode.
+function computeReadOnly(){return viewMode||!roleAtLeast(playerRole,'editor');}
+let presentationOnly=computeReadOnly();
 document.body.classList.toggle('presentation-only',presentationOnly);
-if(presentationOnly)document.getElementById('scene').setAttribute('aria-label','Eternity space. Hover over objects to read their messages.');
+if(presentationOnly)canvas.setAttribute('aria-label','Eternity space. Hover over objects to read their messages.');
+let spacesInstalled=false;
+// Re-derive the whole editing surface from the current role. Runs on welcome
+// and on self roleChange so a promotion (or demotion) flips gates mid-session:
+// suspended objects unpin for editors (they render pinned for viewers), the
+// spaces capture surface installs, and the read-only canvas label reverts.
+function applyEditingMode(){
+ document.body.classList.toggle('presentation-only',presentationOnly);
+ messages.allowLocked=presentationOnly;
+ canvas.setAttribute('aria-label',presentationOnly?'Eternity space. Hover over objects to read their messages.':canvasLabel);
+ if(presentationOnly)for(const o of state.objects)if(o.hanging)o.body.setBodyType(RAPIER.RigidBodyType.Fixed,true);
+ else{
+  for(const o of state.objects)if(o.hanging)o.body.setBodyType(RAPIER.RigidBodyType.Dynamic,true);
+  if(!spacesInstalled){spacesInstalled=true;installSpaces({capture:captureSpace,load:loadSpace,notify});}
+ }
+ resize();
+}
 let hydrating=false;
 const state={mouseMode:'drag',selected:null,drag:null,paused:false,debug:false,ready:false,objects:[],holes:[],sequence:0};
 let renderer,physics;
@@ -91,7 +114,7 @@ const objectGroup=new THREE.Group();scene.add(objectGroup);const presentation=ne
 const playerGroup=new THREE.Group();scene.add(playerGroup);
 const spawnProbe=avatarForm(RAPIER);
 const entities=new Map(); // playerId → {entity, tag, bubble, material}
-let selfEntity=null,playerName='',playerRole='guest';
+let selfEntity=null,playerName='';
 const chatBubbles=new ChatBubbles(),chatLog=new ChatLog();
 const room=new RoomClient({
  url:(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws',
@@ -150,7 +173,7 @@ function onRoomEvent(event){
   case 'welcome':
    // The server may have assigned Player-####; adopt and persist it so the
    // name survives reloads and reconnects.
-   playerName=event.name;playerRole=event.role;
+   playerName=event.name;playerRole=event.role;applyEditingMode();
    if(room.identity.name!==event.name){room.identity.name=event.name;saveIdentity(room.storage,room.identity);}
    syncBoardOnJoin(event.board);
    despawnSelf();spawnEntity({id:event.id,name:event.name},true);
@@ -164,9 +187,14 @@ function onRoomEvent(event){
   case 'boardOp': if(boardSync.receive(event.op,event.by,event.revision)==='apply')applyRemoteOp(event.op);break;
   case 'chat': showChat(event);break;
   case 'roleChange':
-   // Grant, revoke or claim landing on this identity: adopt the role so the
-   // badge and governance console reflect it (the server is the authority).
-   if(event.playerId===room.identity.id){playerRole=event.role;updatePlayerBadge();}
+   // Grant, revoke or presence promotion landing on this identity: adopt the
+   // role so the badge, gates and console reflect it (the server is the
+   // authority). A promotion to admin discloses itself once.
+   if(event.playerId===room.identity.id){
+    const promoted=event.role==='admin'&&playerRole!=='admin';
+    playerRole=event.role;updatePlayerBadge();applyEditingMode();
+    if(promoted)notify('You now run this room — you can edit everything and open Server settings');
+   }
    break;
   case 'status': case 'lost': updatePlayerBadge();break;
   case 'error': if(event.code==='INVALID'||event.code==='FORBIDDEN')boardSync.rejected();notify(event.code==='REPLACED'?'Your identity joined from another tab.':event.code==='BANNED'?'You are banned from this room.':event.code==='KICKED'?'You were removed from the room by the admin.':null);break;
@@ -356,7 +384,7 @@ function createCable(object){
  cable.add(line,clasp,handle,hit);scene.add(cable);object.cable={group:cable,line,clasp,handle,hit};updateCable(object);
 }
 function updateCable(o){
- renderer.shadowMap.needsUpdate=true;if(!o.cable)return;o.cable.group.visible=o.hanging;o.cable.handle.visible=o.hanging&&state.selected===o&&!o.properties.locked;o.cable.hit.visible=o.cable.handle.visible;if(!o.hanging)return;
+ renderer.shadowMap.needsUpdate=true;if(!o.cable)return;o.cable.group.visible=o.hanging;o.cable.handle.visible=o.hanging&&state.selected===o&&canManipulate(o,[o],playerRole);o.cable.hit.visible=o.cable.handle.visible;if(!o.hanging)return;
  const start=pendulums.attachment(o),direction=o.anchor.clone().sub(start);
  o.cable.line.scale.y=direction.length();o.cable.line.position.copy(start).addScaledVector(direction,.5);
  o.cable.line.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());
@@ -386,8 +414,8 @@ function addHole(position=null,size=2){
  const geometry=new THREE.BoxGeometry(size,.012,size),mesh=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));geometry.computeBoundingBox();mesh.position.set(position[0],.006,position[1]);
  const o={id:++state.sequence,type:'pool',gridSize:size,size,height:.012,geometry,mesh,hanging:false,cableLength:5,parts:[]};o.properties=properties();o.primaryMaterial=white.clone();mesh.userData.object=o;objectGroup.add(mesh);state.holes.push(o);refreshHoles();announce(o,'add');return o;
 }
-function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o)))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
-function moveHole(o,target){if(o.properties?.locked)return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
+function moveGround(o,target,dragging=false){if(!canManipulate(o,stacks.members(o),playerRole))return false;const joinedSnapshot=joining(o)?stacks.snapshot(o):null;if(joinedSnapshot)joining(o)?.refresh(o);const old=o.mesh.position.clone(),members=stacks.members(o),visual=presentation.capture(members),result=(dragging||joining(o))?dragFloor(stacks,o,target):{moved:stacks.move(o,target),relocated:false};if(!result.moved){if(joinedSnapshot)refreshJoins();return false;}if(joinedSnapshot&&!refreshJoins()){stacks.restore(joinedSnapshot);refreshJoins();for(const member of members)pendulums.syncPose(member);return false;}presentation.animate(visual,result.relocated);for(const member of members)pendulums.syncPose(member);if(old.distanceToSquared(o.mesh.position)>1e-8){for(const p of [old,o.mesh.position])if(terrain.at(p.x,p.z))terrain.disturb(p.x,p.z,1.4,.22);}return true;}
+function moveHole(o,target){if(!canManipulate(o,[o],playerRole))return false;if(!canPlaceHole(o.size,target.x,target.z))return false;if(o.mesh.position.distanceToSquared(target)<1e-12)return true;o.mesh.position.copy(target);refreshHoles();return true;}
 function addObject(type,position=null,hanging=false,cableLength=5,placement=null,rotation=0,gridSize=2,record=null,photo=null){if(type==='pool')return addHole(position,gridSize??2);if(state.objects.length+state.holes.length>=40){notify('The scene is full — remove a form to add another.');return null;}const form=makeSizedForm(type,RAPIER,gridSize,photo?{photo}:(record??{}));const mesh=new THREE.Mesh(form.meshGeometry??form.geometry,type==='hedge'?applyHedgeSurface(white.clone()):white.clone());mesh.rotation.y=rotation;mesh.castShadow=true;mesh.receiveShadow=true;const o={...form,type,mesh,id:++state.sequence,hanging,cableLength,cable:null,debug:null};o.properties=properties();if(isSign(o))o.properties.messages=[{text:'This way — follow the trail.',choices:[]}];if(o.board)o.properties.messages=[{text:o.board.title,choices:[],action:{type:'board',targetId:o.id,label:'Open board'}}];mesh.userData.object=o;
  if(record?.seated)setGrandmaPose(o,true,physics);
  if(isSign(o)&&placement)applySignPlacement(o,placement);
@@ -402,9 +430,9 @@ function notify(text){clearTimeout(noticeTimer);$('notice').textContent=text;$('
 function select(o){if(presentationOnly)o=null;const changed=state.selected!==o;state.selected=o;
  const list=$('object-list');list.replaceChildren(new Option('Select object',''),...[...state.objects,...state.holes].map(item=>new Option(`${objectSizeLabel(item)} ${item.id}${item.properties.locked?' · locked':''}`,item.id)));list.value=o?.id??'';
  if(changed||!o)inspector.select(o);signInspector.select(o);elementInspector.select(o);
- for(const id of ['rotate','remove','suspended','cable'])$(id).disabled=!!o&&!canManipulate(o,stacks.members(o));for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging&&!form.properties.locked;form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=objectSizeLabel(o);$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool'||isSign(o)||o.type==='sign-pole';$('rotate').hidden=o.type==='pool'||isSign(o)||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
+ for(const id of ['rotate','remove','suspended','cable'])$(id).disabled=!!o&&!canManipulate(o,stacks.members(o),playerRole);for(const form of state.objects){if(form.cable){form.cable.handle.visible=form===o&&form.hanging&&canManipulate(form,[form],playerRole);form.cable.hit.visible=form.cable.handle.visible;}}selectionBox.visible=!!o;$('selection-empty').hidden=!!o;$('selection-controls').hidden=!o;if(!o)return;selectionBox.setFromObject(o.mesh);$('object-name').textContent=objectSizeLabel(o);$('surface-values').hidden=!o.stacking;$('surface-values').textContent=o.stacking?`Foot ${+o.stacking.foot.toFixed(1)} · Head ${+o.stacking.head.toFixed(1)}${o.support?' · On '+LABELS[o.support.type]:''}`:'';$('suspended').closest('.switch-row').hidden=o.type==='pool'||isSign(o)||o.type==='sign-pole';$('rotate').hidden=o.type==='pool'||isSign(o)||!!joining(o);const coordinates=o.hanging?o.anchor:o.mesh.position;$('object-coords').textContent=`${coordinates.x.toFixed(2)}, ${coordinates.z.toFixed(2)}`;$('object-coords').title=o.hanging?'Ceiling anchor X, Z':'Floor position X, Z';$('suspended').checked=o.hanging;$('cable-control').hidden=!o.hanging;$('hang-hint').hidden=!o.hanging&&o.type!=='pool';$('hang-hint').textContent=o.type==='pool'?'Drag an edge to move. Touching pools join.':'Drag the top ring to reposition. Pull the form and release to swing.';$('cable').value=o.cableLength;$('cable-value').textContent=`${o.cableLength.toFixed(2)} m`;}
 function setHang(o,hanging,length=o.cableLength){
- if(o.type==='pool'||isSign(o)||o.type==='sign-pole'||!canManipulate(o,stacks.members(o)))return false;
+ if(o.type==='pool'||isSign(o)||o.type==='sign-pole'||!canManipulate(o,stacks.members(o),playerRole))return false;
  if(joining(o))joining(o)?.refresh(o);
  if(hanging&&stacks.members(o).length>1){notify('Move the objects off the top before hanging this form.');select(o);return false;}
  const position=o.mesh.position.clone(),rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),new THREE.Euler().setFromQuaternion(o.mesh.quaternion,'YXZ').y);
@@ -417,7 +445,7 @@ function setHang(o,hanging,length=o.cableLength){
  pendulums.rebuild(o);if(joining(o))refreshJoins();updateCable(o);select(o);announce(o,'update');notify(hanging?'Drag the top ring to place · pull the form to swing':'Placed on the floor · snapped to the grid');return true;
 }
 function remove(o,force=false){
- if(!o||!force&&!canManipulate(o,stacks.members(o)))return;
+ if(!o||!force&&!canManipulate(o,stacks.members(o),playerRole))return;
  announce(o,'remove');if(signFocus.pole===o)signFocus.exit(true);disposeSign(o);disposeBoard(o);disposePhoto(o);messages.clear();o.emissionLight?.dispose();o.primaryMaterial?.dispose();presentation.clear(o);const children=state.objects.filter(child=>child.support===o);if(state.drag?.object===o)endDrag();if(o.type==='pool'){state.holes.splice(state.holes.indexOf(o),1);objectGroup.remove(o.mesh);o.geometry.dispose();o.mesh.material.dispose();refreshHoles();select(null);return;}pendulums.remove(o);renderer.shadowMap.needsUpdate=true;objectGroup.remove(o.mesh);scene.remove(o.cable.group);
  for(const part of [o.cable.line,o.cable.clasp,o.cable.handle,o.cable.hit]){part.geometry.dispose();if(part.material!==cableMaterial)part.material.dispose();}
  disposeGrandma(o);o.geometry.dispose();o.mesh.material.dispose();o.debug.material.dispose();state.objects.splice(state.objects.indexOf(o),1);refreshJoins();for(const child of children){child.support=null;stacks.settle(child);for(const member of stacks.members(child))pendulums.syncPose(member);}select(null);notify('Form removed');
@@ -446,18 +474,18 @@ canvas.addEventListener('pointerdown',e=>{activePointers.add(e.pointerId);if(act
 for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>activePointers.delete(e.pointerId),true);
 function pick(){const restore=presentation.apply();try{return pickScene();}finally{restore();}}
 function pickScene(){
- const handles=raycaster.intersectObjects(state.selected?.hanging&&!state.selected.properties.locked?[state.selected.cable.hit]:[],false);
+ const handles=raycaster.intersectObjects(state.selected?.hanging&&canManipulate(state.selected,[state.selected],playerRole)?[state.selected.cable.hit]:[],false);
  if(handles.length)return {object:handles[0].object.userData.object,mode:'anchor',hit:handles[0].point};
  const hits=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false),waterHit=hitWater(null,hits);
- if(!presentationOnly&&waterHit?.view.object?.properties.locked)return {locked:true};
+ if(!presentationOnly&&!canManipulate(waterHit?.view.object,[waterHit?.view.object],playerRole))return {locked:true};
  if(waterHit?.view.object)return {water:true,hit:waterHit.point,view:waterHit.view};
  const seeds=ecology.loose.filter(o=>o.type==='seed').map(seed=>{const p=seed.mesh.position.clone().project(camera);return {seed,p,distance:raycaster.ray.origin.distanceTo(seed.mesh.position),pixels:Math.hypot((p.x-pointer.x)*canvas.clientWidth/2,(p.y-pointer.y)*canvas.clientHeight/2)};}).filter(s=>Math.abs(s.p.z)<1&&s.pixels<12&&(!hits.length||s.distance<hits[0].distance+.12)).sort((a,b)=>a.pixels-b.pixels);
  if(seeds.length)return {seed:seeds[0].seed,hit:seeds[0].seed.mesh.position.clone()};
- if(!presentationOnly&&hits[0]?.object.userData.object.properties.locked)return {locked:true};
+ if(!presentationOnly&&!canManipulate(hits[0]?.object.userData.object,[hits[0]?.object.userData.object],playerRole))return {locked:true};
  if(hits.length)return {object:hits[0].object.userData.object,mode:hits[0].object.userData.object.hanging?'pull':'floor',hit:hits[0].point};
  const p=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());
- if(p){const holes=[...state.holes].sort((a,b)=>(a===state.selected?-1:0)-(b===state.selected?-1:0));for(const o of holes){const dx=Math.abs(p.x-o.mesh.position.x),dz=Math.abs(p.z-o.mesh.position.z),half=o.size/2;if(dx<=half+.12&&dz<=half+.12&&(Math.abs(dx-half)<.12||Math.abs(dz-half)<.12))return !presentationOnly&&o.properties.locked?{locked:true}:{object:o,mode:'pool',hit:p};}}
- if(!presentationOnly&&waterHit&&state.holes.some(o=>o.properties.locked&&Math.abs(waterHit.point.x-o.mesh.position.x)<=o.size/2&&Math.abs(waterHit.point.z-o.mesh.position.z)<=o.size/2))return {locked:true};
+ if(p){const holes=[...state.holes].sort((a,b)=>(a===state.selected?-1:0)-(b===state.selected?-1:0));for(const o of holes){const dx=Math.abs(p.x-o.mesh.position.x),dz=Math.abs(p.z-o.mesh.position.z),half=o.size/2;if(dx<=half+.12&&dz<=half+.12&&(Math.abs(dx-half)<.12||Math.abs(dz-half)<.12))return !presentationOnly&&!canManipulate(o,[o],playerRole)?{locked:true}:{object:o,mode:'pool',hit:p};}}
+ if(!presentationOnly&&waterHit&&state.holes.some(o=>!canManipulate(o,[o],playerRole)&&Math.abs(waterHit.point.x-o.mesh.position.x)<=o.size/2&&Math.abs(waterHit.point.z-o.mesh.position.z)<=o.size/2))return {locked:true};
  return waterHit?{water:true,hit:waterHit.point,view:waterHit.view,hoverObject:state.holes.find(o=>Math.abs(waterHit.point.x-o.mesh.position.x)<=o.size/2&&Math.abs(waterHit.point.z-o.mesh.position.z)<=o.size/2)}:null;
 }
 // Pick the visible surface, then release above its highest point so grains never spawn inside a solid.
@@ -495,7 +523,7 @@ canvas.addEventListener('pointerdown',event=>{
   select(null);const seed=picked.seed;plane.set(new THREE.Vector3(0,1,0),0);if(!raycaster.ray.intersectPlane(plane,point))return;
   sling.begin(seed);state.drag={mode:'seed',id:event.pointerId,offset:seed.mesh.position.clone().sub(point)};slingGuide.update(sling);controls.enabled=false;canvas.setPointerCapture(event.pointerId);canvas.style.cursor='grabbing';notify('Pull back · release to launch · Esc to cancel');
  }else if(picked?.object){
-  const o=picked.object,mode=picked.mode;if(!canManipulate(o,stacks.members(o)))return;if(joining(o)&&mode==='floor')joining(o)?.refresh(o);select(o);
+  const o=picked.object,mode=picked.mode;if(!canManipulate(o,stacks.members(o),playerRole))return;if(joining(o)&&mode==='floor')joining(o)?.refresh(o);select(o);
   if(mode==='pull')plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()),picked.hit);
   else plane.set(new THREE.Vector3(0,1,0),-(mode==='anchor'?CEILING_HEIGHT:o.mesh.position.y));
   if(!raycaster.ray.intersectPlane(plane,point))return;
@@ -508,7 +536,7 @@ canvas.addEventListener('pointerdown',event=>{
  else{select(null);notify('');}
 });
 function moveScenePointer(event){
- ray(event);trackPointer(event);if(!state.drag){const hit=pick();const hoverObject=hit?.object??hit?.view?.object??hit?.hoverObject;hoveredSign=isSign(hoverObject)&&(presentationOnly||!hoverObject.properties.locked)?hoverObject:null;poleEye.target(hoverObject);messages.target(state.mouseMode==='drag'?(hit?.object??hit?.view?.object??hit?.hoverObject):null);canvas.style.cursor=presentationOnly?'default':state.mouseMode==='seed'?'crosshair':hit?.locked?'default':hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
+ ray(event);trackPointer(event);if(!state.drag){const hit=pick();const hoverObject=hit?.object??hit?.view?.object??hit?.hoverObject;hoveredSign=isSign(hoverObject)&&(presentationOnly||canManipulate(hoverObject,[hoverObject],playerRole))?hoverObject:null;poleEye.target(hoverObject);messages.target(state.mouseMode==='drag'?(hit?.object??hit?.view?.object??hit?.hoverObject):null);canvas.style.cursor=presentationOnly?'default':state.mouseMode==='seed'?'crosshair':hit?.locked?'default':hit?.object||hit?.seed?'grab':hit?.water?'crosshair':'default';return;}
  if(state.drag.id!==event.pointerId)return;
  if(state.drag.mode==='feed'){const p=seedDropPoint(),now=performance.now();if(p&&now-state.drag.last>180&&(!state.drag.lastPoint||p.distanceTo(state.drag.lastPoint)>.035)){ecology.scatterFood(seedDropPoint(.25));state.drag.last=now;state.drag.lastPoint=p.clone();}return;}
  if(state.drag.water){const p=hitWater(state.drag.bath),now=performance.now();if(p){const uv=waterUV(p.view,p.point);if(state.drag.previous&&(state.drag.view===p.view||state.drag.view?.field===p.view.field)){if(p.view.stroke)p.view.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);else p.view.field.stroke(state.drag.previous,uv,(now-state.drag.last)/1000);}state.drag.previous=uv;state.drag.view=p.view;}else state.drag.previous=null;state.drag.last=now;return;}
@@ -570,7 +598,7 @@ if(!cancel&&dirty&&object&&(mode==='floor'||mode==='pool'||mode==='anchor'))anno
 function cancelDrag(){const drag=state.drag;endDrag(null,true);if(drag?.mode==='avatar'&&selfEntity){selfEntity.group.position.copy(drag.previous);room.setPose(selfEntity.pose());}if(drag?.object){if(drag.mode==='pool'){drag.object.mesh.position.copy(drag.snapshot.position);refreshHoles();}else if(drag.mode==='floor'){stacks.restore(drag.snapshot);for(const s of drag.snapshot){presentation.clear(s.object);pendulums.syncPose(s.object);}}else{presentation.clear(drag.object);pendulums.restore(drag.object,drag.snapshot);}if(joining(drag.object))refreshJoins();updateCable(drag.object);select(drag.object);notify('Drag cancelled');}}
 bindDragPointer(window,canvas,{getDrag:()=>state.drag,move:moveScenePointer,end:endDrag,cancel:cancelDrag});window.addEventListener('blur',()=>{cancelDrag();activePointers.clear();ecology.setPointer(null,null);});canvas.addEventListener('contextmenu',e=>e.preventDefault());
 function placeForm(o,x,z){
- if(!canManipulate(o,stacks.members(o))||presentationOnly)return false;
+ if(!canManipulate(o,stacks.members(o),playerRole)||presentationOnly)return false;
  const target=new THREE.Vector3(Math.round(x/GRID)*GRID,o.hanging?CEILING_HEIGHT:o.mesh.position.y,Math.round(z/GRID)*GRID);
  const result=o.type==='pool'?moveHole(o,target):o.hanging?pendulums.moveAnchor(o,target,physics):moveGround(o,target);
  if(result)announce(o,'update');updateCable(o);select(o);return result;
@@ -581,7 +609,7 @@ canvas.addEventListener('keydown',e=>{
  if(dirs[e.key]){e.preventDefault();const [x,z]=dirs[e.key],p=o.hanging?o.anchor:o.mesh.position;if(!placeForm(o,p.x+x,p.z+z))notify('Occupied — choose a clear path');}
  if(e.key.toLowerCase()==='r')rotateSelected();if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();remove(o);}
 });
-function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o))||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');announce(o,'update');}updateCable(o);select(o);}
+function rotateSelected(){const o=state.selected;if(signFocus.active||!o||!canManipulate(o,stacks.members(o),playerRole)||o.type==='pool'||!!joining(o))return;const members=stacks.members(o),visual=presentation.capture(members),pivot=(isSign(o)&&o.support?.type==='sign-pole'?o.support.mesh.position:o.mesh.position).clone();if(!(o.hanging?physics.rotate(o):stacks.rotate(o)))notify('Not enough clearance to rotate');else{presentation.animate(visual,false,pivot);for(const member of members)pendulums.syncPose(member);notify(isSign(o)?'Rotated 45°':'Rotated 90°');announce(o,'update');}updateCable(o);select(o);}
 for(const button of document.querySelectorAll('[data-add]'))button.addEventListener('click',()=>{const o=addObject(button.dataset.add,null,false,5,null,0,+button.dataset.gridSize||2);if(o){select(o);notify(o.type==='birdbath'?'Bird bath added · leave it quiet for visitors':o.type==='pool'?'Pool added · drag an edge to move':`${objectSizeLabel(o)} added · drag it into place`);canvas.focus({preventScroll:true});}});
 let pickerFamily='plant';
 const pickerTypes={plant:'plant-snake-medium',table:'table-round-full',grandma:'grandma-skirt-bun',sign:'sign-arrow-text',home:'chair'};
@@ -698,7 +726,7 @@ const messages=new ObjectMessages($('stage'),action=>{
  cancelDrag();cancelToolbarDrag();messages.clear();signFocus.enter(object,state.objects,canvas.clientWidth,canvas.clientHeight,{front:object.type==='sign-pole'});
 });messages.allowLocked=presentationOnly;
 function editForm(o,type,config){
- if(!o||!canManipulate(o)||state.objects.some(child=>child.support===o)){notify('Move anything resting on this object before changing its shape.');return false;}
+ if(!o||!canManipulate(o,[o],playerRole)||state.objects.some(child=>child.support===o)){notify('Move anything resting on this object before changing its shape.');return false;}
  try{const form=makeSizedForm(type,RAPIER,o.gridSize??2,config);
   if(!replaceForm(o,form,type,physics)){notify('This shape needs more room. Move it clear first.');return false;}
   disposeSign(o);disposeBoard(o);decorateSign(o);decorateBoard(o);disposePhoto(o);decoratePhoto(o);pendulums.rebuild(o);presentation.clear(o);updateCable(o);renderer.shadowMap.needsUpdate=true;select(o);return true;
@@ -708,7 +736,7 @@ const signInspector=new SignInspector($('selection-controls'),o=>{if(o===state.s
  const old={...o.sign};if(editForm(o,`sign-${variant}-${mode}`,{})){Object.assign(o.sign,{label:old.label,icon:old.icon,arrow:old.arrow});disposeSign(o);decorateSign(o);}select(o);
 });
 const elementInspector=new ElementInspector($('selection-controls'),(o,key,value)=>{
- if(o.properties.locked)return;
+ if(!canManipulate(o,[o],playerRole))return;
  if(o.letter){editForm(o,'letter',{letter:{...o.letter,[key==='letter-font'?'font':'character']:value}});}
  else if(key==='board-url'){if(actionURL(value)){o.board.url=value;}else notify('Use an http or https page URL.');}
  else if(o.board){o.board.title=value;disposeBoard(o);decorateBoard(o);}

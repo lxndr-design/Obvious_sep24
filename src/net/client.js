@@ -159,7 +159,7 @@ export class RoomClient {
     this.attempt = 0; // consecutive failed connects
     this.retryTimer = null;
     this.roster = new RoomRoster(graceMs);
-    this.outbox = []; // chat/boardOp/claim sent while offline, flushed after welcome
+    this.outbox = []; // chat/boardOp/governance sends queued while offline, flushed after welcome
     this.pendingPose = null; // latest presence while throttled or offline
     this.lastPresenceSent = 0;
   }
@@ -233,10 +233,6 @@ export class RoomClient {
 
   sendBoardOp(op) {
     this.send({kind: 'boardOp', op});
-  }
-
-  claim(passphrase) {
-    this.send({kind: 'claim', passphrase});
   }
 
   // Governance actions (U4): thin, queueable sends. The server enforces every

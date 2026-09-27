@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomClient, readJoinToken, shareLinkUrl } from '../src/net/client.js';
 import { decodeMessage } from '../src/net/protocol.js';
-import { actionLabel, canGovern, inviteLabel, memberActions, memberRows } from '../src/governance.js';
+import { actionLabel, canGovern, consoleView, CONSOLE_LABEL, inviteLabel, memberActions, memberRows } from '../src/governance.js';
 
 const SELF = 'a1b2c3d4-0000-4000-8000-000000000001';
 const OTHER = 'b2c3d4e5-0000-4000-8000-000000000002';
@@ -59,6 +59,32 @@ test('canGovern: the console governs only for the admin', () => {
   assert.equal(canGovern('editor'), false);
   assert.equal(canGovern('guest'), false);
   assert.equal(canGovern(undefined), false);
+});
+
+test('consoleView and CONSOLE_LABEL: Server settings, admin-only section and role hints', () => {
+  // The label is shared by the toggle button, the dialog heading and the
+  // close control — and is distinct from the scene "Scene settings" inspector.
+  assert.equal(CONSOLE_LABEL, 'Server settings');
+
+  // Admin: members and share links visible with the admin hint.
+  assert.deepEqual(consoleView('admin'), {
+    adminSection: true,
+    hint: 'You are the admin of this room.',
+  });
+  // Editors and guests keep their hint but lose the section — the console is
+  // admin-only (post-release D6), so non-admin viewers see status only.
+  assert.deepEqual(consoleView('editor'), {
+    adminSection: false,
+    hint: 'You are an editor of this room.',
+  });
+  assert.deepEqual(consoleView('guest'), {
+    adminSection: false,
+    hint: 'You are a guest of this room.',
+  });
+  // The button's visibility is exactly canGovern of the viewer's role —
+  // hidden for editors/guests, shown for the admin, recomputed on roleChange.
+  assert.equal(canGovern('admin'), true);
+  assert.equal(canGovern('editor') || canGovern('guest'), false);
 });
 
 test('memberRows: the local player leads, then alphabetical; outputs are copies', () => {

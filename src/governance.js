@@ -6,9 +6,24 @@
 // convenience, never the security boundary.
 import {shareLinkUrl} from './net/client.js';
 
-// The console governs only for the admin; everyone else sees the claim form.
+// The console governs only for the admin; other roles have no console.
 export function canGovern(role) {
   return role === 'admin';
+}
+
+// Console label (post-release D6) — distinct from the scene "Scene settings"
+// inspector; shared by the button, the dialog heading and the close control.
+export const CONSOLE_LABEL = 'Server settings';
+
+// What the dialog shows for a role: the admin gets the member/link section;
+// everyone else gets a one-line status hint. Pure — node --test owns it.
+export function consoleView(role) {
+  return {
+    adminSection: canGovern(role),
+    hint: role === 'admin' ? 'You are the admin of this room.'
+      : role === 'editor' ? 'You are an editor of this room.'
+        : 'You are a guest of this room.',
+  };
 }
 
 // Member rows for the console list: the local player first (always
@@ -22,7 +37,7 @@ export function memberRows(members, selfId) {
 
 // Which actions the viewer's row offers. The server refuses everything the
 // matrix forbids; this list only decides what is worth showing.
-// Self: nothing. Admin targets: nothing (admin transfers via passphrase).
+// Self: nothing. Admin targets: nothing (admin follows presence).
 // Everyone else (for the admin): role toggle, kick, ban.
 export function memberActions(viewerRole, member) {
   if (viewerRole !== 'admin' || member.self || member.role === 'admin') return [];
@@ -40,29 +55,26 @@ export function inviteLabel(role) {
   return role === 'editor' ? 'Editor link' : 'Guest link';
 }
 
-const CLAIM_HINT = 'The first visitor to submit the room passphrase becomes the admin. A later claim transfers the role to the new admin.';
-
 export function createGovernance({client, doc = document, members, selfRole, shareBase, notify}) {
   const canCopy = typeof navigator !== 'undefined' && !!navigator.clipboard?.writeText;
 
   const button = doc.createElement('button');
   button.id = 'governance-toggle';
   button.type = 'button';
-  button.textContent = 'Governance';
+  button.textContent = CONSOLE_LABEL;
+  button.hidden = !canGovern(selfRole()); // admin-only (post-release D6)
   button.addEventListener('click', open);
   doc.getElementById('player-badge').append(button);
 
   const dialog = doc.createElement('dialog');
   dialog.id = 'governance-dialog';
-  dialog.innerHTML = `<div class="picker-heading"><h2>Room governance</h2><button type="button" aria-label="Close governance">×</button></div><p class="hint" id="governance-role-hint"></p><section id="governance-admin"><div class="section-title">Members</div><div id="governance-members"></div><div class="section-title">Share links</div><div class="button-pair"><button type="button" id="governance-link-editor">Editor link</button><button type="button" id="governance-link-guest">Guest link</button></div><p class="hint">A link admits anyone who opens it with the named role. Kicking and banning still apply.</p><output id="governance-link" hidden></output></section><section id="governance-claim-section"><div class="section-title">Becoming admin</div><label for="governance-passphrase">Room passphrase</label><input id="governance-passphrase" type="password" autocomplete="off"><div class="button-pair"><button type="button" id="governance-claim">Claim admin</button></div><p class="hint">${CLAIM_HINT}</p></section>`;
+  dialog.innerHTML = `<div class="picker-heading"><h2>${CONSOLE_LABEL}</h2><button type="button" aria-label="Close ${CONSOLE_LABEL}">×</button></div><p class="hint" id="governance-role-hint"></p><section id="governance-admin"><div class="section-title">Members</div><div id="governance-members"></div><div class="section-title">Share links</div><div class="button-pair"><button type="button" id="governance-link-editor">Editor link</button><button type="button" id="governance-link-guest">Guest link</button></div><p class="hint">A link admits anyone who opens it with the named role. Kicking and banning still apply.</p><output id="governance-link" hidden></output></section>`;
   doc.body.append(dialog);
 
   const roleHint = dialog.querySelector('#governance-role-hint');
   const adminSection = dialog.querySelector('#governance-admin');
-  const claimSection = dialog.querySelector('#governance-claim-section');
   const memberList = dialog.querySelector('#governance-members');
   const linkOut = dialog.querySelector('#governance-link');
-  const passphrase = dialog.querySelector('#governance-passphrase');
 
   const closeButton = dialog.querySelector('.picker-heading button');
   closeButton.addEventListener('click', () => dialog.close());
@@ -98,12 +110,15 @@ export function createGovernance({client, doc = document, members, selfRole, sha
   }
 
   function renderSections() {
-    const admin = canGovern(selfRole());
-    adminSection.hidden = !admin;
-    claimSection.hidden = admin;
-    roleHint.textContent = admin ? 'You are the admin of this room.'
-      : selfRole() === 'editor' ? 'You are an editor of this room.'
-        : 'You are a guest of this room.';
+    const view = consoleView(selfRole());
+    adminSection.hidden = !view.adminSection;
+    roleHint.textContent = view.hint;
+  }
+
+  // The console button tracks the role on every room event — including while
+  // the dialog is closed, so only admins ever see the entry point.
+  function renderButton() {
+    button.hidden = !canGovern(selfRole());
   }
 
   async function offerLink(role, token) {
@@ -123,14 +138,9 @@ export function createGovernance({client, doc = document, members, selfRole, sha
 
   dialog.querySelector('#governance-link-editor').addEventListener('click', () => client.mintLink('editor'));
   dialog.querySelector('#governance-link-guest').addEventListener('click', () => client.mintLink('guest'));
-  dialog.querySelector('button#governance-claim').addEventListener('click', () => {
-    const value = passphrase.value;
-    if (!value) return;
-    passphrase.value = '';
-    client.claim(value);
-  });
 
   function open() {
+    renderButton();
     renderSections();
     renderMembers();
     dialog.showModal();
@@ -138,21 +148,16 @@ export function createGovernance({client, doc = document, members, selfRole, sha
 
   // Room events reach the console through main.js's single onEvent switch.
   function onRoomEvent(event) {
+    renderButton();
     if (!dialog.open) return;
     switch (event.type) {
       case 'welcome': case 'player-join': case 'player-update': case 'player-remove':
-        renderSections();
-        renderMembers();
-        break;
       case 'roleChange':
         renderSections();
         renderMembers();
         break;
       case 'share-link':
         offerLink(event.role, event.token);
-        break;
-      case 'error':
-        if (event.code === 'CLAIM_REJECTED') notify('That passphrase was rejected.');
         break;
       default: break;
     }
