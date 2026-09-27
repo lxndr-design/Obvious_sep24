@@ -70,6 +70,72 @@ export class ChatLog {
   }
 }
 
+// ---- log panel window (post-release D5) ------------------------------------
+// The panel renders a window ending at the newest entry: the last
+// RECENT_WINDOW messages by default — the dimmed recent tier — and Show more
+// pulls in SHOW_MORE_STEP older entries per click from the in-memory log.
+export const RECENT_WINDOW = 10;
+export const SHOW_MORE_STEP = 10;
+
+// The slice of `items` the panel should render once `revealed` older entries
+// have been pulled in. Pure — the DOM layer renders exactly this window.
+export function visibleLogWindow(items, revealed = 0) {
+  const count = Math.min(items.length, RECENT_WINDOW + Math.max(0, revealed));
+  return items.slice(items.length - count);
+}
+
+// Split a rendered window into its two tiers: the newest RECENT_WINDOW entries
+// are the dimmed recent tier; anything revealed beyond it is older history.
+export function splitLogWindow(windowItems) {
+  const splitAt = Math.max(0, windowItems.length - RECENT_WINDOW);
+  return {older: windowItems.slice(0, splitAt), recent: windowItems.slice(splitAt)};
+}
+
+// ---- reload persistence (post-release D5) ----------------------------------
+// Client-only: the server keeps no chat history, so the recent log survives a
+// reload through this browser's localStorage. Same storage interface as the
+// identity — {getItem, setItem, removeItem} — a Map-backed fake in tests.
+export const CHAT_LOG_STORAGE_KEY = 'eternity.chat-log';
+// Enough for the recent window plus several Show more steps after a reload;
+// bounded well under storage quotas.
+export const PERSISTED_LOG_ENTRIES = 50;
+
+export function saveChatLog(storage, items, limit = PERSISTED_LOG_ENTRIES) {
+  if (!storage) return false;
+  const recent = items.slice(Math.max(0, items.length - limit));
+  try {
+    storage.setItem(CHAT_LOG_STORAGE_KEY, JSON.stringify(recent));
+    return true;
+  } catch (error) {
+    // Quota or private-mode failures degrade to the in-memory session log —
+    // chat must keep working, so the write failure is reported, not thrown.
+    console.warn('chat log persistence failed', error);
+    return false;
+  }
+}
+
+export function loadChatLog(storage, limit = PERSISTED_LOG_ENTRIES) {
+  if (!storage) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(storage.getItem(CHAT_LOG_STORAGE_KEY) ?? 'null');
+  } catch {
+    return []; // a corrupt record must never block the log — start empty
+  }
+  if (!Array.isArray(parsed)) return [];
+  // Keep only well-formed entries; text renders via textContent downstream,
+  // and a missing field degrades to a blank rather than breaking the panel.
+  return parsed
+    .filter((entry) => entry && typeof entry === 'object' && typeof entry.text === 'string' && typeof entry.name === 'string')
+    .slice(-limit)
+    .map((entry) => ({
+      id: typeof entry.id === 'string' ? entry.id : '',
+      name: entry.name,
+      text: entry.text,
+      at: Number.isFinite(entry.at) ? entry.at : 0,
+    }));
+}
+
 // Bubbles ride the entity projection but must stay readable: the stage clips
 // anything above its top edge under the page header, and a bubble taller than
 // the tag stack needs more slack than a name tag. Clamp the anchor so the

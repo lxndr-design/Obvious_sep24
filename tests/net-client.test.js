@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {
   DEFAULT_GRACE_MS,
   IDENTITY_KEY,
@@ -423,6 +424,14 @@ test('rename persists immediately and re-hellos the live socket', () => {
   const hellos = sockets[0].sent.filter((message) => message.kind === 'hello');
   assert.equal(hellos.length, 2);
   assert.equal(hellos[1].name, 'Meadow Walker');
+});
+
+test('the rename-player button reads "Edit"', () => {
+  const markup = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const button = markup.match(/<button id="rename-player"[^>]*>([^<]*)<\/button>/);
+  assert.ok(button, 'rename-player button exists in index.html');
+  assert.equal(button[1], 'Edit');
+  assert.match(button[0], /title="Edit your display name"/); // the tooltip keeps the long wording
 });
 
 test('chat and boardOp reach the wire with their protocol shapes', () => {

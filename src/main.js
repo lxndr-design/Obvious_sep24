@@ -34,7 +34,7 @@ import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
 import {LIMITS,roleAtLeast} from './net/protocol.js';
 import {createGovernance} from './governance.js';
 import {avatarForm,avatarPlacement,createPlayerEntity,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
-import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
+import {ChatBubbles,ChatLog,SHOW_MORE_STEP,clampBubbleAnchor,composeChatText,loadChatLog,saveChatLog,splitLogWindow,visibleLogWindow} from './chat.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
 import {DitherShader} from './dither.js';
@@ -305,7 +305,8 @@ function beginRename(){
 // textContent only — chat is untrusted input.
 function showChat(event){
  chatLog.add({id:event.from,name:event.name,text:event.text,at:Date.now()});
- appendChatLog(event.name,event.text);
+ saveChatLog(room.storage,chatLog.items);
+ renderChatLog();
  const entry=entities.get(event.from);
  if(!entry)return; // a line from a player whose entity is already gone — log keeps it
  chatBubbles.show(event.from,{name:event.name,text:event.text},performance.now());
@@ -319,12 +320,16 @@ function stepChatBubbles(now){
   if(entry?.bubble){entry.bubble.remove();entry.bubble=null;}
  }
 }
-function appendChatLog(name,text){
+// The log renders a window ending at the newest entry — the last RECENT_WINDOW
+// messages dimmed, plus older history pulled in by Show more. A rebuild per
+// change keeps the tier classes honest as entries age between windows.
+let revealedLog=0;
+function renderChatLog(){
  const list=$('chat-log');if(!list)return;
- const item=document.createElement('li'),who=document.createElement('strong');
- who.textContent=name;item.append(who,document.createTextNode(` ${text}`));
- list.append(item);
- while(list.children.length>MAX_LOG_ENTRIES)list.firstChild.remove();
+ const {older,recent}=splitLogWindow(visibleLogWindow(chatLog.items,revealedLog));
+ const item=(entry,tier)=>{const li=document.createElement('li'),who=document.createElement('strong');li.className=tier;who.textContent=entry.name;li.append(who,document.createTextNode(` ${entry.text}`));return li;};
+ list.replaceChildren(...older.map(entry=>item(entry,'chat-log-older')),...recent.map(entry=>item(entry,'chat-log-recent')));
+ const more=$('chat-log-more');if(more)more.hidden=older.length+recent.length>=chatLog.items.length;
  if(list.closest('details')?.open)list.scrollTop=list.scrollHeight;
 }
 function sendChatLine(){
@@ -337,6 +342,11 @@ function sendChatLine(){
 }
 $('chat-form').addEventListener('submit',event=>{event.preventDefault();sendChatLine();});
 $('chat-input').maxLength=LIMITS.MAX_CHAT_CHARS;
+$('chat-log-more').addEventListener('click',()=>{revealedLog+=SHOW_MORE_STEP;renderChatLog();});
+// D5: a reload restores this browser's recent log from localStorage — client-only,
+// the server keeps no chat history.
+for(const entry of loadChatLog(room.storage))chatLog.add(entry);
+renderChatLog();
 function updateTags(now){
  // Name tags are HTML overlays projected from each entity's head, like the
  // popup messages — crisp under the dither, and easy to hit-test.
