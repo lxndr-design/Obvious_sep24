@@ -203,7 +203,11 @@ export function defaultKitFactory({variant,section,canvas,onReseed,onFirstFrame}
   variant.scene,
   kit.camera,
  );
- return kit;
+ // The runtime's reseed path (kit activation, worker revival) owns the feel
+ // config; the tool owns the deterministic respawn. spawnSeries() defaults
+ // every parameter from the kit's banner state — the variant's config.
+ const tool={requestRegen(){kit.despawn();kit.spawnSeries();}};
+ return{kit,tool};
 }
 
 // Per-section pointer wiring — the entry-level NDC adapter from the studio,
