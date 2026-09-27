@@ -254,7 +254,7 @@ export function mountDemoColumn({
  const sections=[];
  const runtimes=new Map();
  const controllers=[];
- for(const[variant,index]of variants.entries()){
+ for(const[index,variant]of variants.entries()){
   const section=doc.createElement('section');
   section.className='banner-sec';
   section.id=`banner-${variant.id}`;
