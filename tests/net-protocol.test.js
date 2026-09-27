@@ -13,7 +13,6 @@ import {
   roleAtLeast,
   validateBoardOp,
   validateChat,
-  validateClaim,
   validateHello,
   validateKick,
   validatePresence,
@@ -28,7 +27,6 @@ test('every client kind decodes into its normalized shape', () => {
     [{ kind: 'chat', text: '  hello   meadow  ' }, { kind: 'chat', text: 'hello meadow' }],
     [{ kind: 'boardOp', op: { type: 'add', objectId: 'form-7', data: { x: 1 } } }, { kind: 'boardOp', op: { type: 'add', objectId: 'form-7', data: { x: 1 } } }],
     [{ kind: 'boardOp', op: { type: 'remove', objectId: 'form-7' } }, { kind: 'boardOp', op: { type: 'remove', objectId: 'form-7' } }],
-    [{ kind: 'claim', passphrase: 'open sesame' }, { kind: 'claim', passphrase: 'open sesame' }],
     [{ kind: 'roleChange', playerId: HELLO.id, role: 'editor' }, { kind: 'roleChange', playerId: HELLO.id, role: 'editor' }],
     [{ kind: 'kick', playerId: HELLO.id }, { kind: 'kick', playerId: HELLO.id }],
     [{ kind: 'ban', playerId: HELLO.id }, { kind: 'ban', playerId: HELLO.id }],
@@ -106,11 +104,9 @@ test('boardOp validation: verbs, object ids, data shape', () => {
   assert.equal(validateBoardOp({ kind: 'boardOp', op: { type: 'add', objectId: 'a', data: {}, sneaky: 1 } }).ok, false);
 });
 
-test('claim, roleChange, kick and ban validate their targets', () => {
-  assert.equal(validateClaim({ kind: 'claim', passphrase: '' }).ok, false);
-  assert.equal(validateClaim({ kind: 'claim', passphrase: 'p'.repeat(129) }).ok, false);
-  assert.equal(validateClaim({ kind: 'claim', passphrase: 'p'.repeat(128) }).ok, true);
-  assert.equal(validateRoleChange({ kind: 'roleChange', playerId: HELLO.id, role: 'admin' }).ok, false); // admin only via claim
+test('roleChange, kick and ban validate their targets; claim is no longer a kind', () => {
+  assert.equal(decodeMessage(JSON.stringify({ kind: 'claim', passphrase: 'open sesame' })).ok, false); // removed — presence bootstrap owns admin
+  assert.equal(validateRoleChange({ kind: 'roleChange', playerId: HELLO.id, role: 'admin' }).ok, false); // admin follows presence, not roleChange
   assert.equal(validateRoleChange({ kind: 'roleChange', playerId: HELLO.id, role: 'owner' }).ok, false);
   assert.equal(validateRoleChange({ kind: 'roleChange', playerId: 'short', role: 'editor' }).ok, false);
   assert.equal(validateKick({ kind: 'kick', playerId: HELLO.id }).ok, true); // kind-agnostic: the envelope checks kind

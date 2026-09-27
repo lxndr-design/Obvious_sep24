@@ -5,34 +5,30 @@ import { TestClient } from './ws-client-helper.js';
 
 const A = 'a1b2c3d4-0000-4000-8000-000000000001';
 const B = 'b2c3d4e5-0000-4000-8000-000000000002';
-const PASSPHRASE = 'meadow-keeper';
 
 test('two clients see each other, chat, replicate board ops, and the admin governs', async () => {
-  const room = await createRoomServer({ adminPassphrase: PASSPHRASE, persistDelayMs: 500 }).init();
+  const room = await createRoomServer({ persistDelayMs: 500 }).init();
   await room.listen(0, '127.0.0.1');
   const url = `ws://127.0.0.1:${room.address().port}/ws`;
   try {
-    // ---- both join; each gets a welcome with role + snapshot ----
+    // ---- ana joins first: the admin-less room promotes her on admission ----
     const ana = await TestClient.connect(url);
     const anaWelcome = await ana.hello({ id: A, name: 'Ana' });
     assert.equal(anaWelcome.role, 'guest');
     assert.deepEqual(anaWelcome.snapshot.players, [{ id: A, name: 'Ana', role: 'guest' }]);
     assert.deepEqual(anaWelcome.snapshot.board, { objects: {}, revision: 0 });
+    // the promotion is announced to her through the ordinary roleChange path
+    const promoted = await ana.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    assert.equal(promoted.playerId, A);
 
     const bo = await TestClient.connect(url);
     const boWelcome = await bo.hello({ id: B, name: 'Bo' });
-    assert.equal(boWelcome.role, 'guest');
+    assert.equal(boWelcome.role, 'guest'); // an admin is online — no bootstrap
     assert.deepEqual(boWelcome.snapshot.players.map((p) => p.id).sort(), [A, B]);
 
     // ---- presence: ana sees bo join; bo saw ana already in the snapshot ----
     const join = await ana.next((m) => m.kind === 'presence' && m.event === 'join');
     assert.deepEqual(join.player, { id: B, name: 'Bo', role: 'guest' });
-
-    // ---- ana claims admin ----
-    ana.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await ana.next((m) => m.kind === 'roleChange' && m.role === 'admin');
-    const anaRoleBroadcast = await bo.next((m) => m.kind === 'presence' && m.event === 'update');
-    assert.equal(anaRoleBroadcast.player.role, 'admin');
 
     // ---- guest boardOp refused, then promoted and accepted ----
     bo.send({ kind: 'boardOp', op: { type: 'add', objectId: 'form-1', data: { kind: 'bench' } } });
@@ -59,20 +55,25 @@ test('two clients see each other, chat, replicate board ops, and the admin gover
     assert.equal(move.id, B);
     assert.deepEqual(move.pose, { x: 2, y: 0, z: 5 });
 
-    // ---- transfer claim: bo takes admin, ana drops to editor ----
-    bo.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await bo.next((m) => m.kind === 'roleChange' && m.role === 'admin');
-    await ana.next((m) => m.kind === 'roleChange' && m.role === 'editor');
-    ana.send({ kind: 'kick', playerId: B }); // editor cannot govern
-    await ana.expectError('FORBIDDEN');
+    // ---- the admin leaves: the earliest-present member (bo) is promoted ----
+    await ana.close();
+    const boPromoted = await bo.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    assert.equal(boPromoted.playerId, B);
+
+    // ---- ana returns as an editor (displaced admin); an editor cannot govern ----
+    const comeback = await TestClient.connect(url);
+    const comebackWelcome = await comeback.hello({ id: A, token: anaWelcome.token });
+    assert.equal(comebackWelcome.role, 'editor');
+    comeback.send({ kind: 'kick', playerId: B });
+    await comeback.expectError('FORBIDDEN');
 
     // ---- bo (current admin) bans ana; ana is refused on reconnect ----
     bo.send({ kind: 'ban', playerId: A });
-    await ana.expectError('BANNED');
-    const comeback = await TestClient.connect(url);
-    comeback.send({ kind: 'hello', id: A });
     await comeback.expectError('BANNED');
-    await comeback.close();
+    const secondTry = await TestClient.connect(url);
+    secondTry.send({ kind: 'hello', id: A });
+    await secondTry.expectError('BANNED');
+    await secondTry.close();
 
     // ---- ana's removal was broadcast; the room continues with bo alone ----
     const leave = await bo.next((m) => m.kind === 'presence' && m.event === 'leave');

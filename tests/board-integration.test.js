@@ -10,7 +10,6 @@ import {RoomClient, createIdentity} from '../src/net/client.js';
 const A = 'a1b2c3d4-0000-4000-8000-000000000001';
 const B = 'b2c3d4e5-0000-4000-8000-000000000002';
 const C = 'c3d4e5f6-0000-4000-8000-000000000003';
-const PASSPHRASE = 'meadow-keeper';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eternity-board-'));
 
@@ -44,7 +43,7 @@ const benchAt = (x, z) => ({
 });
 
 async function startRoom(options = {}) {
-  const room = await createRoomServer({adminPassphrase: PASSPHRASE, ...options}).init();
+  const room = await createRoomServer(options).init();
   await room.listen(0, '127.0.0.1');
   return {room, url: `ws://127.0.0.1:${room.address().port}/ws`};
 }
@@ -59,7 +58,7 @@ test('board ops replicate in order, a joining client gets the snapshot, guests a
     const anaWelcome = await until(anaEvents, (event) => event.type === 'welcome', 'ana welcome');
     // The welcome carries the room board — empty for a fresh room (U5 contract).
     assert.deepEqual(anaWelcome.board, {objects: {}, revision: 0});
-    ana.claim(PASSPHRASE);
+    // first joiner on an admin-less room: promoted and announced (no claim step)
     await until(anaEvents, (event) => event.type === 'roleChange' && event.role === 'admin', 'ana admin');
 
     bo = clientFor(url, B, 'Bo', boEvents);
@@ -113,7 +112,7 @@ test('the board snapshot survives a server restart (AC-7.6 persistence round-tri
     ana = clientFor(first.url, A, 'Ana', anaEvents);
     ana.connect();
     await until(anaEvents, (event) => event.type === 'welcome', 'ana welcome');
-    ana.claim(PASSPHRASE);
+    // first joiner on an admin-less room: promoted and announced (no claim step)
     await until(anaEvents, (event) => event.type === 'roleChange' && event.role === 'admin', 'ana admin');
     ana.sendBoardOp({type: 'add', objectId: 'ana-7', data: benchAt(-2, 4)});
     ana.sendBoardOp({type: 'update', objectId: 'ana-7', data: benchAt(-4, 4)});
