@@ -38,7 +38,7 @@ export function createSplashKit(canvas,initial={}){
   poseCounts.sleeping=sleeping;
   field.applyPoses(frame);
  }
- const sim=createSimChannel({onPoses:frame=>applyPoses(frame)});
+ const sim=createSimChannel({onPoses:frame=>applyPoses(frame),worker:initial.simWorkerFactory?.()});
  const noise=createNoiseChannel(initial.noiseWorkerFactory?{workerFactory:initial.noiseWorkerFactory}:{});
  // Per-preset bump field config: the 'bump' material buckets for a preset must
  // shade the exact field its displaced geometry was cut with.
@@ -249,6 +249,45 @@ export function createSplashKit(canvas,initial={}){
   engine.dispose();
  }
 
+ // --- activation facade (demo column) ---------------------------------------
+ // One banner's whole runtime cost on one switch. Paused = no rAF ticks AND no
+ // sim steps: the sim worker is TERMINATED, because the world's own rate lever
+ // (config.simHz) floors at 30 Hz — never zero — and the locked economics
+ // require zero off-screen cost. The next activation attaches a fresh worker
+ // and fires onReseed so the owner repopulates the deterministic arrangement
+ // (the seeded series reproduces it exactly).
+ let simAttached=true; // createSimChannel attached (its own or injected) worker
+ let simNeedsReseed=true; // attached world is empty defaults until reseeded
+ const defaultSimWorkerFactory=()=>new Worker(new URL('./sim/sim-worker.js',import.meta.url),{type:'module'});
+ function reviveSim(){
+  const worker=(initial.simWorkerFactory??defaultSimWorkerFactory)();
+  sim.attach(worker);
+  if(typeof worker.addEventListener==='function'){
+   // Same surfacing as the channel's boot path: a dead worker must be visible.
+   worker.addEventListener('error',event=>{
+    throw new Error(`sim worker failed: ${event.message??'unknown error'}`);
+   });
+  }
+  simAttached=true;
+ }
+ function setActive(active){
+  if(active){
+   if(!simAttached)reviveSim();
+   if(simNeedsReseed){
+    simNeedsReseed=false;
+    initial.onReseed?.();
+   }
+   engine.start(tick,null); // no-op when already running; never re-fires onFirstFrame
+  }else{
+   engine.stop();
+   if(simAttached){
+    sim.dispose();
+    simAttached=false;
+   }
+   simNeedsReseed=true;
+  }
+ }
+
  const kit={
   banner,
   // Exposed for the sim slice (worker attach + pose feeding) and tests; the
@@ -259,17 +298,19 @@ export function createSplashKit(canvas,initial={}){
   spawn,despawn,fillGrid,spawnSeries,setPointer,shockwave,drag,dragRelease,
   screenToPlane,pickBody,fractalBump,
   applyPoses,
+  setActive,
   stats,dispose,
  };
- engine.start(()=>{
-  // Interpolation alpha for this frame comes from pose-arrival timing (tier
-  // 3 only): how far into the expected interval the next pose is late.
+ // Interpolation alpha for this frame comes from pose-arrival timing (tier
+ // 3 only): how far into the expected interval the next pose is late.
+ const tick=()=>{
   if(field.interpolation.enabled){
    const since=performance.now()-poseTiming.last;
    field.interpolation.alpha=Number.isFinite(since)?Math.min(1,Math.max(0,since/poseTiming.interval)):0;
   }
   field.sync();
   governor.tick();
- },initial.onFirstFrame);
+ };
+ engine.start(tick,initial.onFirstFrame);
  return kit;
 }
