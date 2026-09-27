@@ -33,7 +33,7 @@ import {RoomClient,loadIdentity,saveIdentity,STATUS,readJoinToken} from './net/c
 import {BoardReplicator,localKey,keyPrefix} from './net/board-replicator.js';
 import {LIMITS} from './net/protocol.js';
 import {createGovernance} from './governance.js';
-import {avatarForm,avatarPlacement,createPlayerEntity,nameTagLabel,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
+import {avatarForm,avatarPlacement,createPlayerEntity,pickSpawnSpot,PLAYER_HEIGHT,spawnCandidates} from './player-entity.js';
 import {ChatBubbles,ChatLog,clampBubbleAnchor,composeChatText,MAX_LOG_ENTRIES} from './chat.js';
 import {CollisionScene,GRID,POOL} from './collision.js';
 import {HoleTerrain} from './hole-terrain.js';
@@ -133,7 +133,7 @@ function spawnEntity(player,self=false){
  else entity.setPose({x:0,y:0,z:0,yaw:0}); // ring exhausted — still joins, at the park center
  entity.group.userData.playerId=player.id;
  playerGroup.add(entity.group);
- const tag=document.createElement('div');tag.className='player-tag';tag.textContent=nameTagLabel(entity.name,self);tag.dataset.playerId=player.id;$('stage').append(tag);
+ const tag=document.createElement('div');tag.className='player-tag';tag.textContent=entity.name;tag.dataset.playerId=player.id;$('stage').append(tag);
  entities.set(player.id,{entity,tag,material});
  if(self){selfEntity=entity;room.setPose(entity.pose());}
  return entity;
@@ -160,7 +160,7 @@ function onRoomEvent(event){
   case 'player-leave': entities.get(event.player.id)?.entity.setLeaving(true);break;
   case 'player-remove': despawnEntity(event.id);break;
   case 'player-move': {const entry=entities.get(event.id);if(entry){entry.entity.setLeaving(false);entry.entity.setPose(event.pose);}}break;
-  case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=nameTagLabel(event.player.name,entry.entity.self);updatePlayerBadge();}}break;
+  case 'player-update': {const entry=entities.get(event.player.id);if(entry){entry.entity.name=event.player.name;entry.tag.textContent=event.player.name;updatePlayerBadge();}}break;
   case 'boardOp': if(boardSync.receive(event.op,event.by,event.revision)==='apply')applyRemoteOp(event.op);break;
   case 'chat': showChat(event);break;
   case 'roleChange':

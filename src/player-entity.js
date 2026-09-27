@@ -38,6 +38,14 @@ export function avatarPlacement(collision, form, x, z) {
 // The avatar: a tapered body and a faceted head, white like every meadow form.
 // Group origin sits at the feet, so a pose is just position + yaw. `material`
 // is owned by the caller (one clone per entity — leaving players fade).
+//
+// The viewer's own unit additionally carries a gold ring around its feet — the
+// scene's only gold circle, marking self. Remote players never get one, so
+// their group stays the plain two-mesh figure. The ring owns its unlit
+// material (not the caller's): the gold must survive fades and lighting.
+export const SELF_RING_COLOR = 0xe7bd35;
+const SELF_RING_INNER = 0.3, SELF_RING_OUTER = 0.38, SELF_RING_LIFT = 0.015;
+
 export function createPlayerEntity({name, material, self = false}) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(.13, .19, .58, 8), material);
@@ -47,8 +55,19 @@ export function createPlayerEntity({name, material, self = false}) {
   body.castShadow = head.castShadow = true;
   group.add(body, head);
 
+  let ring = null;
+  if (self) {
+    ring = new THREE.Mesh(
+      new THREE.RingGeometry(SELF_RING_INNER, SELF_RING_OUTER, 48),
+      new THREE.MeshBasicMaterial({color: SELF_RING_COLOR, transparent: true, opacity: .9, depthWrite: false}),
+    );
+    ring.rotation.x = -Math.PI / 2; // lay flat on the ground
+    ring.position.y = SELF_RING_LIFT; // clear of the ground plane, no z-fighting
+    group.add(ring);
+  }
+
   return {
-    group, body, head, name, self,
+    group, body, head, ring, name, self,
     pose() {
       return {x: group.position.x, y: group.position.y, z: group.position.z, yaw: group.rotation.y};
     },
@@ -65,13 +84,12 @@ export function createPlayerEntity({name, material, self = false}) {
     dispose() {
       body.geometry.dispose();
       head.geometry.dispose();
+      if (ring) {
+        ring.geometry.dispose();
+        ring.material.dispose();
+      }
     },
   };
-}
-
-// Overlay label text for the HTML name tag; the local player is marked.
-export function nameTagLabel(name, self = false) {
-  return self ? `${name} (you)` : name;
 }
 
 // Candidate spawn cells hugging the back edge of the park — newcomers enter
