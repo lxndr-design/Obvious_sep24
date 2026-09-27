@@ -488,11 +488,11 @@ function pickScene(){
  const handles=raycaster.intersectObjects(state.selected?.hanging&&canManipulate(state.selected,[state.selected],playerRole)?[state.selected.cable.hit]:[],false);
  if(handles.length)return {object:handles[0].object.userData.object,mode:'anchor',hit:handles[0].point};
  const hits=raycaster.intersectObjects(state.objects.map(o=>o.mesh),false),waterHit=hitWater(null,hits);
- if(!presentationOnly&&!canManipulate(waterHit?.view.object,[waterHit?.view.object],playerRole))return {locked:true};
+ if(!presentationOnly&&waterHit?.view.object&&!canManipulate(waterHit.view.object,[waterHit.view.object],playerRole))return {locked:true};
  if(waterHit?.view.object)return {water:true,hit:waterHit.point,view:waterHit.view};
  const seeds=ecology.loose.filter(o=>o.type==='seed').map(seed=>{const p=seed.mesh.position.clone().project(camera);return {seed,p,distance:raycaster.ray.origin.distanceTo(seed.mesh.position),pixels:Math.hypot((p.x-pointer.x)*canvas.clientWidth/2,(p.y-pointer.y)*canvas.clientHeight/2)};}).filter(s=>Math.abs(s.p.z)<1&&s.pixels<12&&(!hits.length||s.distance<hits[0].distance+.12)).sort((a,b)=>a.pixels-b.pixels);
  if(seeds.length)return {seed:seeds[0].seed,hit:seeds[0].seed.mesh.position.clone()};
- if(!presentationOnly&&!canManipulate(hits[0]?.object.userData.object,[hits[0]?.object.userData.object],playerRole))return {locked:true};
+ if(!presentationOnly&&hits.length&&!canManipulate(hits[0].object.userData.object,[hits[0].object.userData.object],playerRole))return {locked:true};
  if(hits.length)return {object:hits[0].object.userData.object,mode:hits[0].object.userData.object.hanging?'pull':'floor',hit:hits[0].point};
  const p=raycaster.ray.intersectPlane(groundRayPlane,new THREE.Vector3());
  if(p){const holes=[...state.holes].sort((a,b)=>(a===state.selected?-1:0)-(b===state.selected?-1:0));for(const o of holes){const dx=Math.abs(p.x-o.mesh.position.x),dz=Math.abs(p.z-o.mesh.position.z),half=o.size/2;if(dx<=half+.12&&dz<=half+.12&&(Math.abs(dx-half)<.12||Math.abs(dz-half)<.12))return !presentationOnly&&!canManipulate(o,[o],playerRole)?{locked:true}:{object:o,mode:'pool',hit:p};}}
