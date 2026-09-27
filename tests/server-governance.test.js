@@ -15,21 +15,20 @@ const A = 'a1b2c3d4-0000-4000-8000-000000000001';
 const B = 'b2c3d4e5-0000-4000-8000-000000000002';
 const C = 'c3d4e5f6-0000-4000-8000-000000000003';
 const D = 'd4e5f6a7-0000-4000-8000-000000000004';
-const PASSPHRASE = 'meadow-keeper';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eternity-governance-'));
 
 async function startRoom(options = {}) {
-  const room = await createRoomServer({ adminPassphrase: PASSPHRASE, ...options }).init();
+  const room = await createRoomServer(options).init();
   await room.listen(0, '127.0.0.1');
   return { room, url: `ws://127.0.0.1:${room.address().port}/ws` };
 }
 
-// Admin bootstrap shared by most cases: connect, hello, claim the passphrase.
-async function claimAdmin(url, name = 'Keeper') {
+// Admin bootstrap shared by most cases: the first hello on an admin-less room
+// is promoted and announced — no passphrase, no claim step.
+async function bootstrapAdmin(url, name = 'Keeper') {
   const admin = await TestClient.connect(url);
   await admin.hello({ id: A, name });
-  admin.send({ kind: 'claim', passphrase: PASSPHRASE });
   await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
   return admin;
 }
@@ -37,7 +36,7 @@ async function claimAdmin(url, name = 'Keeper') {
 test('full role matrix over raw frames: guest speaks and moves only, editor also edits, admin also governs', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await claimAdmin(url);
+    const admin = await bootstrapAdmin(url);
 
     // Guest joins with a raw hand-built hello and forges governance frames.
     const guest = await TestClient.connect(url);
@@ -96,7 +95,7 @@ test('full role matrix over raw frames: guest speaks and moves only, editor also
 test('an editor share link lifts a fresh identity to editor; the guest link holds at guest', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await claimAdmin(url);
+    const admin = await bootstrapAdmin(url);
 
     admin.send({ kind: 'mintLink', role: 'editor' });
     const editorLink = await admin.next((m) => m.kind === 'shareLink');
@@ -135,7 +134,7 @@ test('an editor share link lifts a fresh identity to editor; the guest link hold
 test('a banned session token is refused on reconnect — a valid token is not a ban exemption', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await claimAdmin(url);
+    const admin = await bootstrapAdmin(url);
     const pest = await TestClient.connect(url);
     const pestWelcome = await pest.hello({ id: B, name: 'Pest' });
     admin.send({ kind: 'ban', playerId: B });
@@ -153,7 +152,7 @@ test('a banned session token is refused on reconnect — a valid token is not a 
 test('an invite token never impersonates a role-holding identity and never outranks the session-token check', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await claimAdmin(url);
+    const admin = await bootstrapAdmin(url);
     // B holds an editor role granted in-session; the invite token is not a
     // session token, so presenting one instead is refused, not rewarded.
     const editor = await TestClient.connect(url);
@@ -181,7 +180,7 @@ test('an invite token never impersonates a role-holding identity and never outra
 test('mintLink payload validation: admin role is not linkable, unknown fields rejected', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await claimAdmin(url);
+    const admin = await bootstrapAdmin(url);
     admin.send({ kind: 'mintLink', role: 'admin' });
     await admin.expectError('INVALID');
     admin.send({ kind: 'mintLink', role: 'editor', sneaky: 1 });
@@ -199,7 +198,7 @@ test('share links survive a restart (the signing secret persists) and grants per
   const first = await startRoom({ statePath, persistDelayMs: 5 });
   let link;
   try {
-    const admin = await claimAdmin(first.url);
+    const admin = await bootstrapAdmin(first.url);
     admin.send({ kind: 'mintLink', role: 'editor' });
     link = (await admin.next((m) => m.kind === 'shareLink')).token;
     const joiner = await TestClient.connect(first.url);

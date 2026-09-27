@@ -6,7 +6,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
@@ -40,14 +40,6 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.map': 'application/json',
 };
-
-// Constant-time secret comparison — hash both sides so lengths never leak.
-function secretsMatch(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string' || b.length === 0) return false;
-  const ha = createHash('sha256').update(a).digest();
-  const hb = createHash('sha256').update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
 
 export function signToken(secret, id, issuedAt = Date.now()) {
   const body = `${TOKEN_VERSION}.${id}.${issuedAt}`;
@@ -112,7 +104,6 @@ export class RoomServer {
   constructor(options = {}) {
     this.opts = {
       statePath: null,
-      adminPassphrase: '',
       distDir: 'dist',
       persistDelayMs: 500,
       log: () => {},
@@ -310,7 +301,6 @@ export class RoomServer {
       case 'chat': return this.relayChat(player, message);
       case 'presence': return this.relayPresence(player, message);
       case 'boardOp': return this.onBoardOp(player, message);
-      case 'claim': return this.onClaim(player, message);
       case 'roleChange': return this.onRoleChange(player, message);
       case 'kick': return this.onKick(player, message);
       case 'ban': return this.onBan(player, message);
@@ -382,6 +372,10 @@ export class RoomServer {
       token,
       snapshot: this.snapshot(),
     });
+    // Presence bootstrap (post-release D1): the room may have been admin-less —
+    // promote after the welcome so the promotion announcement always lands
+    // after the client has adopted its join state.
+    this.ensureAdmin();
     this.broadcast({ kind: 'presence', event: 'join', player: this.playerView(player) }, ws);
   }
 
@@ -406,6 +400,7 @@ export class RoomServer {
     this.players.delete(player.id);
     ws.player = null;
     this.broadcast({ kind: 'presence', event: 'leave', player: this.playerView(player) });
+    this.ensureAdmin(); // the admin may have just left — the invariant heals here
   }
 
   // ---- message handlers ----------------------------------------------------
@@ -434,29 +429,28 @@ export class RoomServer {
     this.broadcast({ kind: 'boardOp', op: message.op, by: player.id, revision: board.revision });
   }
 
-  onClaim(player, message) {
-    if (!this.opts.adminPassphrase) {
-      this.sendError(player.ws, ERROR_CODES.CLAIM_REJECTED, 'no admin passphrase is configured on this server');
-      return;
+  // Presence-based admin bootstrap (post-release D1): there is no passphrase —
+  // a room with members always has exactly one admin online. Whenever admission
+  // or a departure leaves the room without one, the earliest-present online
+  // member is promoted. Tokens carry no role (the server looks the role up), so
+  // the promoted identity's existing session token simply keeps working, and
+  // the promotion is announced through the ordinary roleChange + presence
+  // update path every client already reconciles on. A displaced (offline)
+  // admin keeps editor rights for when they return.
+  ensureAdmin() {
+    const online = [...this.players.values()];
+    if (!online.length || online.some((p) => p.role === 'admin')) return null;
+    const outgoingAdminId = this.state.adminId;
+    const promoted = online.reduce((earliest, p) => (p.joinedAt < earliest.joinedAt ? p : earliest));
+    if (outgoingAdminId && outgoingAdminId !== promoted.id) {
+      this.state.roles[outgoingAdminId] = 'editor'; // transfer demotes the old admin, never orphans admin
     }
-    if (!secretsMatch(message.passphrase, this.opts.adminPassphrase)) {
-      this.sendError(player.ws, ERROR_CODES.CLAIM_REJECTED, 'passphrase rejected');
-      return;
-    }
-    const previousAdminId = this.state.adminId;
-    if (previousAdminId && previousAdminId !== player.id) {
-      this.state.roles[previousAdminId] = 'editor'; // transfer demotes the old admin, never orphans admin
-      const previous = this.players.get(previousAdminId);
-      if (previous) {
-        previous.role = 'editor';
-        this.send(previous.ws, { kind: 'roleChange', playerId: previous.id, role: 'editor', by: player.id });
-      }
-    }
-    this.state.adminId = player.id;
-    player.role = 'admin';
+    this.state.adminId = promoted.id;
+    promoted.role = 'admin';
     this.schedulePersist();
-    this.send(player.ws, { kind: 'roleChange', playerId: player.id, role: 'admin', by: player.id });
-    this.broadcast({ kind: 'presence', event: 'update', player: this.playerView(player) }, player.ws);
+    this.send(promoted.ws, { kind: 'roleChange', playerId: promoted.id, role: 'admin', by: promoted.id });
+    this.broadcast({ kind: 'presence', event: 'update', player: this.playerView(promoted) }, promoted.ws);
+    return promoted;
   }
 
   onRoleChange(player, message) {
@@ -470,7 +464,7 @@ export class RoomServer {
       return;
     }
     if (target.id === this.state.adminId) {
-      this.sendError(player.ws, ERROR_CODES.INVALID, 'admin role transfers only via passphrase claim');
+      this.sendError(player.ws, ERROR_CODES.INVALID, 'the admin role follows presence, not roleChange');
       return;
     }
     this.state.roles[target.id] = message.role;
@@ -566,11 +560,10 @@ export function createRoomServer(options = {}) {
   return room;
 }
 
-// Direct run: `npm run server` (PORT, ADMIN_PASSPHRASE, ROOM_STATE_PATH, DIST_DIR env).
+// Direct run: `npm run server` (PORT, ROOM_STATE_PATH, DIST_DIR env).
 export async function main(env = process.env) {
   const room = createRoomServer({
     statePath: env.ROOM_STATE_PATH || 'server/data/room-state.json',
-    adminPassphrase: env.ADMIN_PASSPHRASE || '',
     distDir: env.DIST_DIR || 'dist',
     log: (line) => console.error(`[room] ${line}`),
   });

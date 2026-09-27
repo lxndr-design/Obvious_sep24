@@ -2,11 +2,12 @@
 // Pure module — no Node builtins, no DOM — so the browser client (U2+) and the
 // server (server/index.js) validate the exact same message shapes.
 
-export const CLIENT_KINDS = ['hello', 'chat', 'boardOp', 'claim', 'roleChange', 'kick', 'ban', 'presence', 'mintLink'];
+export const CLIENT_KINDS = ['hello', 'chat', 'boardOp', 'roleChange', 'kick', 'ban', 'presence', 'mintLink'];
 export const SERVER_KINDS = ['welcome', 'presence', 'chat', 'boardOp', 'roleChange', 'error', 'shareLink'];
 export const ROLES = ['guest', 'editor', 'admin'];
-// Roles a share link can carry (U4). Admin never travels by link — it
-// transfers only via passphrase claim on the server.
+// Roles a share link can carry (U4). Admin never travels by link — it is
+// granted by presence bootstrap (the earliest-present member when no admin is
+// online), never minted or transferred.
 export const INVITE_ROLES = ['editor', 'guest'];
 export const BOARD_OP_TYPES = ['add', 'update', 'remove'];
 
@@ -14,7 +15,6 @@ export const LIMITS = {
   MAX_MESSAGE_BYTES: 256 * 1024,
   MAX_NAME_CHARS: 32,
   MAX_CHAT_CHARS: 280,
-  MAX_PASSPHRASE_CHARS: 128,
   MAX_TOKEN_CHARS: 512,
   MAX_ID_CHARS: 64,
   MAX_BOARD_OBJECTS: 4096,
@@ -28,7 +28,6 @@ export const ERROR_CODES = {
   INVALID: 'INVALID', // envelope fine, payload failed its schema
   HELLO_REQUIRED: 'HELLO_REQUIRED', // spoke before hello
   FORBIDDEN: 'FORBIDDEN', // role matrix rejection
-  CLAIM_REJECTED: 'CLAIM_REJECTED', // wrong passphrase / none configured
   KICKED: 'KICKED',
   BANNED: 'BANNED',
   REPLACED: 'REPLACED', // same identity joined from another connection
@@ -113,20 +112,11 @@ export function validateBoardOp(m) {
   return pass({ op: { type: op.type, objectId: op.objectId, data: op.data } });
 }
 
-export function validateClaim(m) {
-  const bad = checkFields(m, ['kind', 'passphrase']);
-  if (bad) return fail(bad);
-  if (typeof m.passphrase !== 'string' || m.passphrase.length < 1 || m.passphrase.length > LIMITS.MAX_PASSPHRASE_CHARS) {
-    return fail(`passphrase must be 1-${LIMITS.MAX_PASSPHRASE_CHARS} characters`);
-  }
-  return pass({ passphrase: m.passphrase });
-}
-
 export function validateRoleChange(m) {
   const bad = checkFields(m, ['kind', 'playerId', 'role']);
   if (bad) return fail(bad);
   if (!isValidPlayerId(m.playerId)) return fail('playerId must be 8-64 url-safe characters');
-  if (!['editor', 'guest'].includes(m.role)) return fail('role must be "editor" or "guest" — admin transfers only via claim');
+  if (!['editor', 'guest'].includes(m.role)) return fail('role must be "editor" or "guest" — the admin role follows presence, not roleChange');
   return pass({ playerId: m.playerId, role: m.role });
 }
 
@@ -146,7 +136,7 @@ export const validateBan = validatePlayerTarget;
 export function validateMintLink(m) {
   const bad = checkFields(m, ['kind', 'role']);
   if (bad) return fail(bad);
-  if (!INVITE_ROLES.includes(m.role)) return fail(`role must be one of ${INVITE_ROLES.join(', ')} — admin transfers only via passphrase claim`);
+  if (!INVITE_ROLES.includes(m.role)) return fail(`role must be one of ${INVITE_ROLES.join(', ')} — the admin role is never linkable`);
   return pass({ role: m.role });
 }
 
@@ -173,7 +163,6 @@ const CLIENT_VALIDATORS = {
   hello: validateHello,
   chat: validateChat,
   boardOp: validateBoardOp,
-  claim: validateClaim,
   roleChange: validateRoleChange,
   kick: validateKick,
   ban: validateBan,

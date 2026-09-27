@@ -59,4 +59,3 @@ input[type=range]::-moz-range-track{height:3px;background:var(--track);border:0}
 .member-row button{padding:4px 7px;font-size:11px;white-space:nowrap;flex:none}
 .member-row button.danger:hover{background:var(--text);color:var(--surface);border-color:var(--text)}
 #governance-link{display:block;margin-top:12px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font:11px 'IBM Plex Mono',monospace;word-break:break-all;color:var(--text);background:var(--surface)}
-#governance-passphrase{width:100%;padding:10px;margin:6px 0 12px;border:1px solid var(--line);border-radius:7px;color:inherit;background:transparent;font:inherit;font-size:13px}

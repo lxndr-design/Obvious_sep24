@@ -11,12 +11,12 @@ import { TestClient } from './ws-client-helper.js';
 const A = 'a1b2c3d4-0000-4000-8000-000000000001';
 const B = 'b2c3d4e5-0000-4000-8000-000000000002';
 const C = 'c3d4e5f6-0000-4000-8000-000000000003';
-const PASSPHRASE = 'meadow-keeper';
+const D = 'd4e5f6a7-0000-4000-8000-000000000004';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eternity-room-'));
 
 function makeRoom(options = {}) {
-  return createRoomServer({ adminPassphrase: PASSPHRASE, ...options });
+  return createRoomServer(options);
 }
 
 async function startRoom(options = {}) {
@@ -37,55 +37,99 @@ test('token helpers sign, verify, and reject tampering', () => {
   assert.equal(verifyToken(secret, `${token}extra`, 2_000).ok, false);
 });
 
-test('claim flow: correct passphrase becomes admin, wrong one is rejected', async () => {
+test('the first user to join an admin-less room is promoted to admin, announced to them', async () => {
   const { room, url } = await startRoom();
   try {
-    const admin = await TestClient.connect(url);
-    const welcome = await admin.hello({ id: A, name: 'Keeper' });
-    assert.equal(welcome.role, 'guest');
+    const first = await TestClient.connect(url);
+    const welcome = await first.hello({ id: A, name: 'First' });
     assert.ok(welcome.token);
-    admin.send({ kind: 'claim', passphrase: 'wrong guess' });
-    await admin.expectError('CLAIM_REJECTED');
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    const promoted = await admin.next((m) => m.kind === 'roleChange');
-    assert.equal(promoted.role, 'admin');
-    await admin.close();
+    // the promotion is announced through the ordinary roleChange path
+    const promoted = await first.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    assert.equal(promoted.playerId, A);
+    // ... and the room carries exactly one admin, online
+    assert.deepEqual(room.snapshot().players, [{ id: A, name: 'First', role: 'admin' }]);
+    await first.close();
   } finally {
     await room.close();
   }
 });
 
-test('claim without a configured passphrase is rejected, not a crash', async () => {
-  const room = await makeRoom({ adminPassphrase: '' }).init();
-  await room.listen(0, '127.0.0.1');
-  const url = `ws://127.0.0.1:${room.address().port}/ws`;
+test('a second joiner stays guest while an admin is online; promotion heals an admin-less room', async () => {
+  const { room, url } = await startRoom();
+  try {
+    const first = await TestClient.connect(url);
+    await first.hello({ id: A, name: 'First' });
+    await first.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    const second = await TestClient.connect(url);
+    const welcome = await second.hello({ id: B, name: 'Second' });
+    assert.equal(welcome.role, 'guest'); // an admin is online — no bootstrap
+    await first.close();
+    // the admin left: the earliest-present member is promoted and announced
+    const promoted = await second.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    assert.equal(promoted.playerId, B);
+    assert.deepEqual(room.snapshot().players, [{ id: B, name: 'Second', role: 'admin' }]);
+    await second.close();
+  } finally {
+    await room.close();
+  }
+});
+
+test('claim messages are no longer part of the protocol', async () => {
+  const { room, url } = await startRoom();
   try {
     const client = await TestClient.connect(url);
     await client.hello({ id: A });
     client.send({ kind: 'claim', passphrase: 'anything' });
-    await client.expectError('CLAIM_REJECTED');
+    await client.expectError('UNKNOWN_KIND');
+    // bootstrap is presence-based: the claim neither errors the room nor
+    // transfers anything — the promoted admin from the join stays
+    assert.equal(room.state.adminId, A);
     await client.close();
   } finally {
     await room.close();
   }
 });
 
-test('a second passphrase claim transfers admin and demotes the old admin', async () => {
+test('churn: exactly one admin online across leave, rejoin and leave again', async () => {
   const { room, url } = await startRoom();
   try {
-    const first = await TestClient.connect(url);
-    await first.hello({ id: A, name: 'First' });
-    first.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await first.next((m) => m.kind === 'roleChange' && m.role === 'admin');
-    const second = await TestClient.connect(url);
-    await second.hello({ id: B, name: 'Second' });
-    second.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await second.next((m) => m.kind === 'roleChange' && m.role === 'admin');
-    const demoted = await first.next((m) => m.kind === 'roleChange');
-    assert.equal(demoted.role, 'editor');
-    assert.equal(demoted.playerId, A);
-    await first.close();
-    await second.close();
+    const one = await TestClient.connect(url);
+    const oneWelcome = await one.hello({ id: A, name: 'First' });
+    await one.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    const two = await TestClient.connect(url);
+    await two.hello({ id: B, name: 'Second' });
+    const three = await TestClient.connect(url);
+    await three.hello({ id: C, name: 'Third' });
+
+    // the admin leaves: earliest-present (B) is promoted; C sees the update
+    await one.close();
+    await two.next((m) => m.kind === 'roleChange' && m.role === 'admin' && m.playerId === B);
+    await three.next((m) => m.kind === 'presence' && m.event === 'update' && m.player.id === B && m.player.role === 'admin');
+    assert.equal(room.snapshot().players.filter((p) => p.role === 'admin').length, 1);
+
+    // the displaced admin rejoins — as an editor, via their token
+    const back = await TestClient.connect(url);
+    const backWelcome = await back.hello({ id: A, token: oneWelcome.token });
+    assert.equal(backWelcome.role, 'editor');
+    assert.equal(room.snapshot().players.filter((p) => p.role === 'admin').length, 1);
+
+    // B leaves: C (the earliest-present remaining) is promoted
+    await two.close();
+    await three.next((m) => m.kind === 'roleChange' && m.role === 'admin' && m.playerId === C);
+    assert.equal(room.snapshot().players.filter((p) => p.role === 'admin').length, 1);
+
+    // C leaves too: A (the only member left) is promoted in place, then the
+    // room empties when A also leaves
+    await three.close();
+    await back.next((m) => m.kind === 'roleChange' && m.role === 'admin' && m.playerId === A);
+    await back.close();
+    for (let i = 0; i < 50 && room.snapshot().players.length; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(room.snapshot().players, []);
+    // a fresh identity joining the empty room bootstraps admin again
+    const reborn = await TestClient.connect(url);
+    await reborn.hello({ id: D, name: 'Fourth' });
+    await reborn.next((m) => m.kind === 'roleChange' && m.role === 'admin' && m.playerId === D);
+    await reborn.close();
   } finally {
     await room.close();
   }
@@ -96,8 +140,7 @@ test('role matrix: guests cannot edit or govern, editors can edit, admins can go
   try {
     const admin = await TestClient.connect(url);
     await admin.hello({ id: A, name: 'Admin' });
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin'); // first joiner → promoted
 
     const editor = await TestClient.connect(url);
     const editorWelcome = await editor.hello({ id: B, name: 'Editor' });
@@ -171,9 +214,11 @@ test('the same identity joining twice replaces the older connection', async () =
   const { room, url } = await startRoom();
   try {
     const first = await TestClient.connect(url);
-    await first.hello({ id: A, name: 'Tab one' });
+    const firstWelcome = await first.hello({ id: A, name: 'Tab one' });
     const second = await TestClient.connect(url);
-    await second.hello({ id: A, name: 'Tab two' });
+    // a role-holding identity proves itself with its session token — the same
+    // browser re-sends it automatically, so tab replacement keeps working
+    await second.hello({ id: A, name: 'Tab two', token: firstWelcome.token });
     await first.expectError('REPLACED');
     const snapshot = room.snapshot();
     assert.equal(snapshot.players.length, 1);
@@ -191,8 +236,7 @@ test('banned identities are refused at hello and the ban survives a restart', as
   try {
     const admin = await TestClient.connect(first.url);
     await admin.hello({ id: A });
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin'); // first joiner → promoted
     const pest = await TestClient.connect(first.url);
     await pest.hello({ id: C });
     admin.send({ kind: 'ban', playerId: C });
@@ -224,8 +268,7 @@ test('issued tokens restore identity role after reconnect; forged tokens fall ba
   try {
     const admin = await TestClient.connect(url);
     await admin.hello({ id: A });
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin'); // first joiner → promoted
     const editor = await TestClient.connect(url);
     const editorWelcome = await editor.hello({ id: B, name: 'Editor' });
     admin.send({ kind: 'roleChange', playerId: B, role: 'editor' });
@@ -251,15 +294,15 @@ test('issued tokens restore identity role after reconnect; forged tokens fall ba
   }
 });
 
-test('persistence round-trip: claim, roles, board ops and tokens survive a simulated restart', async () => {
+
+test('persistence round-trip: promotion, roles, board ops and tokens survive a simulated restart', async () => {
   const statePath = path.join(tmp, 'room-state.json');
   const first = await startRoom({ statePath, persistDelayMs: 5 });
   let editorToken;
   try {
     const admin = await TestClient.connect(first.url);
     const adminWelcome = await admin.hello({ id: A, name: 'Keeper' });
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin'); // first joiner → promoted
     const editor = await TestClient.connect(first.url);
     const editorWelcome = await editor.hello({ id: B, name: 'Editor' });
     editorToken = editorWelcome.token;
@@ -280,16 +323,21 @@ test('persistence round-trip: claim, roles, board ops and tokens survive a simul
       assert.equal(second.room.state.board.revision, 1);
       // the token issued before the restart still verifies — same persisted HMAC secret
       assert.deepEqual(verifyToken(second.room.state.secret, editorToken), { ok: true, id: B });
+      // the room is empty after the restart: the first joiner is promoted again
+      // and the persisted but offline admin is displaced to editor
       const joiner = await TestClient.connect(second.url);
       const welcome = await joiner.hello({ id: C, name: 'Latecomer' });
       assert.equal(welcome.role, 'guest');
+      await joiner.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+      assert.equal(second.room.state.adminId, C);
+      assert.equal(second.room.state.roles[A], 'editor');
       assert.equal(welcome.snapshot.board.revision, 1);
       assert.deepEqual(welcome.snapshot.board.objects['form-9'], { type: 'chair', size: 2 });
       await joiner.close();
-      // the admin identity still governs after the restart, via its token
+      // the displaced admin returns as an editor via their persisted token
       const admin2 = await TestClient.connect(second.url);
       const adminWelcome2 = await admin2.hello({ id: A, token: adminWelcome.token });
-      assert.equal(adminWelcome2.role, 'admin');
+      assert.equal(adminWelcome2.role, 'editor');
       await admin2.close();
     } finally {
       await second.room.close();
@@ -305,8 +353,7 @@ test('debounced persistence coalesces rapid edits and writes atomically', async 
   try {
     const admin = await TestClient.connect(url);
     await admin.hello({ id: A });
-    admin.send({ kind: 'claim', passphrase: PASSPHRASE });
-    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin');
+    await admin.next((m) => m.kind === 'roleChange' && m.role === 'admin'); // first joiner → promoted
     // burst of edits inside one debounce window → a single coalesced write
     for (let i = 0; i < 5; i++) {
       admin.send({ kind: 'boardOp', op: { type: 'add', objectId: `form-${i}`, data: { i } } });
