@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {anyOnScreen} from './view-cull.js';
 
 // Shared scene capture, sampled by the actual displaced water surfaces. The final
 // dither pass still handles the palette and pixel grid after light has refracted.
@@ -75,10 +76,15 @@ export class WaterRefraction {
   this.target=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:true});
   this.target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
   this.screen=new THREE.Vector2();
+  this.captures=0;this.skips=0;
  }
  resize(width,height){this.target.setSize(Math.max(1,Math.round(width)),Math.max(1,Math.round(height)));}
  render(renderer,scene,camera,surfaces){
-  const active=surfaces.filter(visible);if(!active.length)return false;
+  const active=surfaces.filter(visible);
+  // The full-scene capture only pays for itself while some water is actually
+  // in view; counting the skips keeps the gating testable.
+  if(!active.length||!anyOnScreen(active,camera)){this.skips++;return false;}
+  this.captures++;
   renderer.getDrawingBufferSize(this.screen);
   for(const material of new Set(active.map(m=>m.material))){
    const u=material.userData.refraction;if(!u)continue;

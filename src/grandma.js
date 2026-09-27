@@ -9,9 +9,9 @@ export function makeGrandma(R,type='grandma'){
  if(!GRANDMA_OUTFITS[outfit]||!GRANDMA_HAIR[hair])throw Error('Unknown Grandma variant');
  const pants=outfit==='pants';
  const build=seated=>{
-  const pieces=[],parts=[];
+  const pieces=[],parts=[],limbs=[];let limb=null;
   const add=(g,x,y,z,collide=true)=>{
-   g.translate(x,y,z);const flat=g.index?g.toNonIndexed():g.clone();flat.deleteAttribute('uv');pieces.push(flat);
+   g.translate(x,y,z);const flat=g.index?g.toNonIndexed():g.clone();flat.deleteAttribute('uv');(limb?limb.geoms:pieces).push(flat);
    if(collide)parts.push({shape:new R.ConvexPolyhedron(new Float32Array(g.attributes.position.array)),offset:new THREE.Vector3()});g.dispose();
   };
   const box=(w,h,d,x,y,z)=>add(new THREE.BoxGeometry(w,h,d),x,y,z);
@@ -67,27 +67,65 @@ export function makeGrandma(R,type='grandma'){
    if(pants)box(.43,.20,.30,0,.10,0);
    else add(new THREE.CylinderGeometry(.22,.31,.72,12),0,-.17,0);
    for(const x of [-.13,.13]){
+    limb={kind:'hips',geoms:[],pivot:new THREE.Vector3(x,pants?.06:-.45,0)};limbs.push(limb);
     noodle(pants?[[x,.07,0],[x*1.08,-.23,.025],[x*.92,-.47,-.015],[x,-.69,0]]:[[x,-.49,0],[x*1.04,-.59,.02],[x,-.69,0]],pants?.095:.05);
-    shoe(x,-.735,.06);
+    shoe(x,-.735,.06);limb=null;
    }
   }
-  noodle([[-.20,.53,0],[-.27,.39,.035],[-.28,.26,.14],[-.18,.20,.29]],.058);
-  noodle([[.20,.53,0],[.28,.41,.04],[.30,.29,.19],[.24,.27,.41]],.056);
-  ball(.065,.24,.27,.41);ball(.065,-.18,.20,.29);
+  if(seated){
+   noodle([[-.20,.53,0],[-.27,.39,.035],[-.28,.26,.14],[-.18,.20,.29]],.058);
+   noodle([[.20,.53,0],[.28,.41,.04],[.30,.29,.19],[.24,.27,.41]],.056);
+   ball(.065,.24,.27,.41);ball(.065,-.18,.20,.29);
+  }else for(const [side,points,r] of [[-1,[[-.20,.53,0],[-.27,.39,.035],[-.28,.26,.14],[-.18,.20,.29]],.058],[1,[[.20,.53,0],[.28,.41,.04],[.30,.29,.19],[.24,.27,.41]],.056]]){
+   limb={kind:'shoulders',geoms:[],pivot:new THREE.Vector3(.19*side,.52,0)};limbs.push(limb);
+   noodle(points,r);ball(.065,points[3][0],points[3][1],points[3][2]);limb=null;
+  }
   box(.24,.29,.16,-.15,.16,.31); // seed bag held at her waist
-  const geometry=mergeGeometries(pieces);pieces.forEach(g=>g.dispose());geometry.computeBoundingBox();
-  const center=(geometry.boundingBox.max.y+geometry.boundingBox.min.y)/2;geometry.translate(0,-center,0);geometry.computeBoundingBox();
+  const flatLimbs=limbs.flatMap(l=>l.geoms);
+  // Full bind-pose geometry anchors colliders, the debug view and size labels;
+  // the standing torso renders on the object mesh while limbs ride pivot groups.
+  const geometry=mergeGeometries([...pieces,...flatLimbs]),meshGeometry=seated?null:mergeGeometries(pieces);
+  geometry.computeBoundingBox();if(meshGeometry)meshGeometry.computeBoundingBox();
+  const center=(geometry.boundingBox.max.y+geometry.boundingBox.min.y)/2;
+  geometry.translate(0,-center,0);geometry.computeBoundingBox();
+  if(meshGeometry){meshGeometry.translate(0,-center,0);meshGeometry.computeBoundingBox();}
+  pieces.concat(flatLimbs).forEach(g=>g.dispose());
   for(const part of parts)part.offset.y=-center;
   const height=geometry.boundingBox.max.y-geometry.boundingBox.min.y;
-  return {geometry,parts,height,seated,seatY:-center,hand:new THREE.Vector3(.24,.27-center,.54),stacking:{foot:1,head:0,bottomY:geometry.boundingBox.min.y,headY:geometry.boundingBox.max.y,heads:[],points:[[-.13,.06],[.13,.06]]}};
+  const rig=seated?null:{hips:[],shoulders:[]};
+  if(!seated)for(const l of limbs){
+   const merged=mergeGeometries(l.geoms);l.geoms.forEach(g=>g.dispose());
+   merged.translate(0,-center,0);merged.computeBoundingBox();
+   const pivot=l.pivot.clone();pivot.y-=center;
+   rig[l.kind].push({geometry:merged,pivot});
+  }
+  return {geometry,parts,height,seated,seatY:-center,hand:new THREE.Vector3(.24,.27-center,.54),...(seated?{}:{meshGeometry,rig}),stacking:{foot:1,head:0,bottomY:geometry.boundingBox.min.y,headY:geometry.boundingBox.max.y,heads:[],points:[[-.13,.06],[.13,.06]]}};
  };
  const standing=build(false),sitting=build(true),grandmaForms={standing,sitting};return {...standing,grandmaForms,grandmaVariant:{outfit,hair}};
 }
 export function setGrandmaPose(o,seated,collision){
  if(!o.grandmaForms)return;
  const form=o.grandmaForms[seated?'sitting':'standing'];
- Object.assign(o,form);o.mesh.geometry=form.geometry;if(o.debug)o.debug.geometry=form.geometry;
+ Object.assign(o,form);o.mesh.geometry=form.meshGeometry??form.geometry;if(o.debug)o.debug.geometry=form.geometry;
  collision?.prepared.delete(o);
+}
+// View wiring for the pivot rig: wraps the object mesh in a bob root and hangs
+// hip/shoulder pivot groups off the mesh. Limb geometry is baked in form space;
+// each pivot sits at the joint with its limb mesh counter-offset, so bind pose
+// is exact and pivot rotations swing the limb about the joint. The bob root is
+// visual-only — collision reads the mesh transform, which never bobs.
+export function attachGrandmaRig(o,material=o.mesh.material){
+ const standing=o.grandmaForms?.standing,parent=o.mesh.parent;
+ if(!standing?.rig||!parent)return;
+ const root=new THREE.Group();parent.add(root);root.add(o.mesh);
+ const make=defs=>defs.map(({geometry,pivot})=>{
+  const group=new THREE.Group();group.position.copy(pivot);group.visible=false;
+  const mesh=new THREE.Mesh(geometry,material);mesh.castShadow=true;mesh.receiveShadow=true;mesh.position.copy(pivot).negate();
+  group.add(mesh);return group;
+ });
+ o.hipPivots=make(standing.rig.hips);o.shoulderPivots=make(standing.rig.shoulders);
+ for(const p of o.hipPivots)root.add(p);for(const p of o.shoulderPivots)root.add(p);
+ o.visualRoot=root;
 }
 export function grandmaPlacement(collision,o,x,z,groundOnly=false){
  const standing=o.grandmaForms.standing,sitting=o.grandmaForms.sitting;
@@ -113,7 +151,15 @@ export function grandmaPlacement(collision,o,x,z,groundOnly=false){
 export function applyGrandmaPlacement(o,placement,collision){
  setGrandmaPose(o,placement.seated,collision);o.mesh.position.copy(placement.position);o.mesh.quaternion.copy(placement.rotation);o.support=placement.support;
 }
-export function disposeGrandma(o){if(o.grandmaForms)for(const form of Object.values(o.grandmaForms))if(form.geometry!==o.geometry)form.geometry.dispose();}
+export function disposeGrandma(o){
+ if(!o.grandmaForms)return;
+ o.visualRoot?.removeFromParent();
+ for(const form of Object.values(o.grandmaForms)){
+  if(form.geometry!==o.geometry)form.geometry.dispose();
+  if(form.meshGeometry&&form.meshGeometry!==form.geometry)form.meshGeometry.dispose();
+  if(form.rig)for(const limb of [...form.rig.hips,...form.rig.shoulders])limb.geometry.dispose();
+ }
+}
 
 export class GrandmaFeeding {
  constructor(random=Math.random){this.random=random;this.timers=new Map();this.busy=()=>false;this.scatters=0;}

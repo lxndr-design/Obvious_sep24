@@ -19,7 +19,7 @@ export class WindTrails{
    for(let i=0;i<SEGMENTS;i++)for(let j=0;j<SIDES;j++){const a=i*SIDES+j,b=i*SIDES+(j+1)%SIDES;indices.push(a,b,a+SIDES,b,b+SIDES,a+SIDES);}
    geometry.setAttribute('position',new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3).setUsage(THREE.DynamicDrawUsage));geometry.setIndex(indices);
    const material=new THREE.MeshPhongMaterial({color:0xffffff,specular:0x555555,shininess:12,transparent:true,opacity:0,depthWrite:false});
-   const mesh=new THREE.Mesh(geometry,material);mesh.frustumCulled=false;mesh.visible=false;scene.add(mesh);this.slots.push({mesh,trail:null});
+   const mesh=new THREE.Mesh(geometry,material);mesh.visible=false;scene.add(mesh);this.slots.push({mesh,trail:null});
   }
   this.p=new THREE.Vector3();this.next=new THREE.Vector3();this.tangent=new THREE.Vector3();this.normal=new THREE.Vector3();this.binormal=new THREE.Vector3();
  }
@@ -47,7 +47,7 @@ export class WindTrails{
    const width=t.width*Math.pow(Math.sin(Math.PI*v),.8)*(tail+t.span*v<0||tail+t.span*v>1?0:1);
    for(let j=0;j<SIDES;j++){const c=Math.cos(j/SIDES*TAU),s=Math.sin(j/SIDES*TAU),nx=this.normal.x*c+this.binormal.x*s,ny=this.normal.y*c+this.binormal.y*s,nz=this.normal.z*c+this.binormal.z*s,k=i*SIDES+j;a.setXYZ(k,this.p.x+nx*width,this.p.y+ny*width,this.p.z+nz*width);n.setXYZ(k,nx,ny,nz);}
   }
-  a.needsUpdate=n.needsUpdate=true;mesh.material.opacity=.8*Math.pow(Math.sin(Math.PI*progress),.45)*t.fade;
+  a.needsUpdate=n.needsUpdate=true;mesh.geometry.computeBoundingSphere();mesh.material.opacity=.8*Math.pow(Math.sin(Math.PI*progress),.45)*t.fade;
  }
  reset(){this.credit=this.accumulator=this.spawned=0;for(const s of this.slots){s.trail=null;s.mesh.visible=false;}}
  read(){return {active:this.slots.filter(s=>s.trail).length,spawned:this.spawned,loops:this.slots.filter(s=>s.trail?.loop).length};}

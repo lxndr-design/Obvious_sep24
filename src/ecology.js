@@ -1,6 +1,7 @@
 import {messageHopBounds} from './message-hops.js';
 import {poseDuckGait,birdSpecies} from './bird-gait.js';
 import {GrandmaFeeding} from './grandma.js';
+import {GrandmaSchedule,poseGrandmaGait,attachGrandmaSchedule} from './grandma-schedule.js';
 import {StickCollection,attachCarriedStick} from './sticks.js';
 import {bathDimensions,bathContains} from './bath-shapes.js';
 import {DuckFlock,duckMesh} from './ducks.js';
@@ -28,8 +29,27 @@ export class Ecology {
   this.strands=[];this.grassClusters=[];this.loose=[];this.piles=[];this.birdViews=new Map();this.bathViews=new Map();this.habitats=[];this.colony=new BirdColony();this.ducks=new DuckFlock();this.duckViews=new Map();this.waterContacts=new BirdWaterContacts();this.random=seededRandom(731);this.accumulator=0;this.pointer=null;this.pointerScreen=null;this.water=null;this.lastLeafRead=0;this.clock=0;
   this.colony.onPeck=(position,pile)=>{const leaves=this.loose.filter(o=>o.pileId===pile.id);leaves.sort((a,b)=>a.mesh.position.distanceToSquared(position)-b.mesh.position.distanceToSquared(position));const leaf=leaves[0];if(leaf)leaf.body.applyImpulse({x:(this.random()-.5)*leaf.body.mass()*.4,y:leaf.body.mass()*.35,z:(this.random()-.5)*leaf.body.mass()*.4},true);};
   this.colony.onSplash=(position,site)=>{if(site.shore){const view=this.terrain?.at(position.x,position.z);if(view){const uv=this.terrain.uv(view,position);view.field.disturb(uv.u,uv.v,-.45,.075);view.field.emit(uv.u,uv.v,.8);}}else this.bathViews.get(site.object)?.splash(position);};
+  // Aerial avoidance: solid-form bounds from the collision broad phase. The
+  // hash proposes candidates, exact world AABBs answer; hanging forms and
+  // near-ground decals never block flight. Read-only over collision state.
+  this.colony.avoidance=(x0,z0,x1,z1,exclude)=>this.flightObstacles(x0,z0,x1,z1,exclude);
   this.sticks=new StickCollection(()=>this.collision.objects);
   this.grandmas=new GrandmaFeeding(seededRandom(934));this.food=new BirdseedField(seededRandom(1931));this.food.attachPhysics(this.world,R);this.foodView=new BirdseedView(scene,this.food);this.feedingMode=false;this.createPlants();this.createLoose();
+  // Grandma's schedule is a second single-agent system beside the colony: it
+  // shares nothing with bird AI except the seed scatter above. Fixed seed keeps
+  // runs deterministic across clients.
+  this.grandmaSchedule=attachGrandmaSchedule(this);
+ }
+ grandmaObjects(){return this.collision.objects.filter(o=>o.grandmaForms);}
+ // Stop points the schedule may pick from: bench seats (with their approach
+ // object), bath and fountain rims, active leaf piles, flower heads.
+ grandmaPois(){
+  const pois=[];
+  for(const o of this.collision.objects)if(o.type==='bench'&&!o.hanging)pois.push({kind:'bench',object:o,x:o.mesh.position.x,z:o.mesh.position.z});
+  for(const bath of this.bathViews.keys())pois.push({kind:'bath',x:bath.mesh.position.x,z:bath.mesh.position.z});
+  for(const pile of this.piles)if(pile.count>0)pois.push({kind:'pile',x:pile.position.x,z:pile.position.z});
+  for(const item of this.strands)if(item.head)pois.push({kind:'flowers',x:item.strand.root.x,z:item.strand.root.z});
+  return pois;
  }
  createPlants(){
   const patches=[[-6,3],[-5,-1.5],[-3.5,4.8],[.1,2.1],[2,5],[5.9,1.8],[6.5,-2.5],[-1.8,-4.5],[-6,-4.8],[1,-5.1],[5.9,-4.8],[-.2,-2.8],[-2,1.4],[7.5,4.5],[-8,-1],[8,-5],[-4,7],[4.4,6.7]];
@@ -161,6 +181,17 @@ export class Ecology {
    for(const duck of this.ducks.ducks)if(attached(duck))this.ducks.departOne(duck,center);
   }
  }
+ flightObstacles(x0,z0,x1,z1,exclude){
+  const scene=this.collision;scene.syncHash();
+  const obstacles=[],candidates=scene.hash.near(x0,z0,x1,z1,scene.candidates);
+  for(const o of candidates){
+   if(o===exclude||o.hanging)continue;
+   const bounds=scene.bounds(o,o.mesh.position);
+   if(bounds.max.y<.2)continue;
+   obstacles.push({minX:bounds.min.x,minY:bounds.min.y,minZ:bounds.min.z,maxX:bounds.max.x,maxY:bounds.max.y,maxZ:bounds.max.z});
+  }
+  return obstacles;
+ }
  clearSpot(position,site,bird){
   const scale=bird?.scale??1;
   if(!['bath','pool'].includes(site?.kind)&&position.y<.12&&this.collision.layout.contains(position.x,position.z))return false;const shape=new this.R.Ball(.11*scale),p={x:position.x,y:position.y+.04*scale,z:position.z};
@@ -169,6 +200,7 @@ export class Ecology {
  }
  update(delta,camera,width,height){
   this.clock+=delta;this.grandmas.step(delta,this.collision.objects,this.food);this.food.updatePhysics(delta);
+  const grandmas=this.grandmaObjects();
   for(const o of this.loose){o.mesh.position.copy(o.body.translation());o.mesh.quaternion.copy(o.body.rotation());}
   // Each pile follows its physical leaves; scattered or submerged leaves no longer attract birds.
   for(const pile of this.piles){const leaves=this.loose.filter(o=>o.pileId===pile.id&&o.type==='leaf'&&!o.lastWet&&o.mesh.position.y<.35);let best=[];
@@ -181,8 +213,10 @@ export class Ecology {
   while(this.accumulator+1e-10>=1/60){
    for(const item of this.strands){const {strand}=item,collide=makeGrassCollider(this.R,colliders,strand.root,strand.height);strand.step(1/60,this.wind.sample(strand.root.x,strand.root.z),collide,this.pointer);}
    this.colony.step(1/60,this.habitats,this.feedingMode?null:this.pointer,(p,site,bird)=>this.clearSpot(p,site,bird));this.ducks.step(1/60,this.terrain,this.feedingMode?null:this.pointer,(p,site,bird)=>this.clearSpot(p,site,bird));
+   this.grandmaSchedule.step(1/60,grandmas);
    this.waterContacts.step(1/60,[...this.colony.birds,...this.ducks.ducks],p=>this.waterAt(p));this.accumulator-=1/60;steps++;
   }
+  for(const o of grandmas)poseGrandmaGait(o,delta);
   this.foodView.update();
   if(steps)for(const item of this.strands)this.updateBlade(item);
   const steppedFields=new Set();for(const [o,view]of this.bathViews)if(view.group.visible){view.update(delta,this.wind.sample(o.mesh.position.x,o.mesh.position.z),!steppedFields.has(view.field));steppedFields.add(view.field);}
@@ -207,7 +241,7 @@ export class Ecology {
  }
  reset(){
   this.ducks.reset();this.waterContacts.reset();for(const view of this.duckViews.values()){view.group.removeFromParent();view.group.traverse(o=>o.geometry?.dispose());view.materials.forEach(m=>m.dispose());}this.duckViews.clear();
-  this.grandmas.reset();this.sticks.reset();this.food.reset();this.foodView.update();
+  this.grandmas.reset();this.sticks.reset();this.food.reset();this.foodView.update();this.grandmaSchedule.reset();
   for(const o of this.loose){o.body.setTranslation(o.spawn,true);o.body.setRotation(o.spawnRotation,true);o.body.setLinvel({x:0,y:0,z:0},true);o.body.setAngvel({x:0,y:0,z:0},true);o.body.resetForces(true);o.body.resetTorques(true);o.mesh.position.copy(o.spawn);o.mesh.quaternion.copy(o.spawnRotation);o.lastWet=false;}
   for(const item of this.strands){item.strand.reset();this.updateBlade(item);}this.colony.reset();for(const view of this.birdViews.values()){this.group.remove(view.group);view.group.traverse(o=>o.geometry?.dispose());for(const m of view.materials)m.dispose();}this.birdViews.clear();for(const view of this.bathViews.values())view.dispose();this.bathViews.clear();this.habitats=[];this.accumulator=0;this.pointer=null;this.pointerScreen=null;
  }

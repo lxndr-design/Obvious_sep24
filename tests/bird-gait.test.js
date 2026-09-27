@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {poseDuckGait,updateBirdGait} from '../src/bird-gait.js';
+import {landingEase,poseDuckGait,updateBirdGait} from '../src/bird-gait.js';
 import {DuckFlock,duckMesh} from '../src/ducks.js';
 import {BirdColony} from '../src/birds.js';
 import {birdMesh,setBirdFatness} from '../src/nature-shapes.js';
@@ -49,6 +49,36 @@ test('foraging follows a straight waypoint, pauses, and abandons a newly blocked
  advance(dt=>c.step(dt,[site]),1);assert.ok(b.position.x>.35);assert.equal(b.position.z,0);const rest=b.position.clone();advance(dt=>c.step(dt,[site]),.5);assert.ok(b.position.distanceTo(rest)<1e-8,'pause between walks');
  b.walkTarget.set(2,.08,0);c.step(1/60,[site],null,p=>p.x<=rest.x+.001);assert.ok(b.walkTarget.distanceTo(b.position)<1e-8,'blocked waypoint abandoned');
  advance(dt=>c.step(dt,[site]),4);assert.ok(b.position.distanceTo(rest)>.1,'can choose a new route after stopping');
+});
+
+test('arrival legs decelerate into the landing and face the path tangent on touch-down',()=>{
+ const c=new BirdColony(()=>.5),site={id:'leaves',position:new THREE.Vector3(3,0,0),count:5};
+ const b={id:2,scale:1,caution:.5,habitat:'leaves',sitePosition:site.position.clone(),state:'arriving',age:0,visitAge:0,position:new THREE.Vector3(0,.08,0),from:new THREE.Vector3(0,.08,0),target:new THREE.Vector3(3,.08,0),opacity:1,fullness:0,capacity:10,fatness:0,wing:0,wingSpread:1,wingFlap:1.12,wingPhase:0,wingState:'gliding',peck:0,yaw:0,residentArrival:false,pileId:'leaves'};
+ c.birds=[b];c.nextArrival=Infinity;
+ // Ease curve: cruise speed until the final stretch, then a smoothstep down to .3.
+ assert.equal(landingEase(0),1);assert.equal(landingEase(.5),1);
+ assert.ok(landingEase(.9)>landingEase(.95)&&landingEase(.95)>.3,'monotonically slowing');
+ assert.ok(Math.abs(landingEase(1)-.3)<1e-12,'thirty percent of cruise at touch-down');
+ let landYaw=null,tangentYaw=null,easedTick=false;
+ advance(dt=>{
+  const flying=!!(b.flight&&!b.flight.done),uBefore=flying?b.flight.u:0,before=b.position.clone();
+  c.step(dt,[site]);
+  if(b.flight){ // leg constants are stable; capture before the landing consumes the flight
+   landYaw=b.flight.landYaw;
+   tangentYaw=Math.atan2(-(b.flight.p2.z-b.flight.p1.z),b.flight.p2.x-b.flight.p1.x);
+  }
+  if(!flying||!b.flight||b.flight.done)return;
+  const moved=b.position.distanceTo(before),budget=b.flight.speed*dt;
+  assert.ok(moved<=budget+1e-9,'velocity bound holds');
+  if(uBefore>.72){
+   assert.ok(moved<=budget*landingEase(uBefore)+1e-9,'final stretch is eased');
+   if(moved<budget-1e-12)easedTick=true;
+  }
+ },3);
+ assert.ok(easedTick,'the approach visibly decelerates');
+ assert.ok(Math.abs(b.yaw-landYaw)<1e-9,'touch-down faces the landing tangent');
+ assert.ok(Math.abs(landYaw-tangentYaw)<1e-9,'landing tangent matches the path');
+ assert.equal(b.state,'foraging','landed into the foraging state');
 });
 
 test('flying ducks unfold and flap marked wings, tuck feet, and fold wings again on landing',()=>{

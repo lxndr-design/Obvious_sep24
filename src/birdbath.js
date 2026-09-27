@@ -59,7 +59,7 @@ export class BathWater {
   this.geometry.setIndex(clipped);this.geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),width);
   this.material=new THREE.MeshPhongMaterial({color:0x626262,specular:0xbcbcbc,shininess:45,transparent:true,opacity:.72,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   this.surfaceMaterial=refractiveWaterMaterial(this.material);this.mesh=new THREE.Mesh(this.geometry,this.surfaceMaterial);this.mesh.receiveShadow=true;this.group.add(this.mesh);
-  this.spray=new THREE.InstancedMesh(new THREE.SphereGeometry(.014,6,4),this.material,48);this.spray.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.spray.frustumCulled=false;this.group.add(this.spray);
+  this.spray=new THREE.InstancedMesh(new THREE.SphereGeometry(.014,6,4),this.material,48);this.spray.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.group.add(this.spray);
   this.drops=[];this.cursor=0;this.transform=new THREE.Object3D();this.splashCount=0;this.fountainTime=0;this.update(0,new THREE.Vector3());
  }
  uv(worldPosition){return {u:(worldPosition.x-this.context.x)/this.field.width+.5,v:(worldPosition.z-this.context.z)/this.field.width+.5};}
@@ -88,7 +88,7 @@ export class BathWater {
    if(drop){drop.age+=dt;drop.velocity.y-=9.81*dt;drop.position.addScaledVector(drop.velocity,dt);visible=drop.age<(this.object.type==='fountain'?.8:.5)&&drop.position.y>0;if(!visible)this.drops[i]=null;}
    this.transform.position.copy(visible?drop.position:new THREE.Vector3());this.transform.scale.setScalar(visible?1:0);this.transform.updateMatrix();this.spray.setMatrixAt(i,this.transform.matrix);
   }
-  this.spray.instanceMatrix.needsUpdate=true;
+  this.spray.instanceMatrix.needsUpdate=true;this.spray.computeBoundingSphere();
  }
  reset(){this.field.reset();this.drops=[];this.splashCount=0;this.fountainTime=0;this.update(0,new THREE.Vector3());}
  dispose(){this.group.visible=false;this.group.removeFromParent();this.geometry.dispose();this.spray.geometry.dispose();this.surfaceMaterial.dispose();this.material.dispose();this.spray.dispose();}

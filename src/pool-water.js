@@ -36,6 +36,6 @@ export class PoolWater extends WaveField {
 }
 
 export class PoolSpray {
- constructor(field,material){this.field=field;this.mesh=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.022),material,96);this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.mesh.frustumCulled=false;this.mesh.castShadow=true;this.transform=new THREE.Object3D();this.update();}
- update(){this.mesh.count=this.field.drops.length;for(let i=0;i<this.mesh.count;i++){const d=this.field.drops[i];this.transform.position.set(d.x,d.y,d.z);this.transform.scale.set(1,1+Math.min(1,Math.abs(d.vy)*.18),1);this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);}this.mesh.instanceMatrix.needsUpdate=true;}
+ constructor(field,material){this.field=field;this.mesh=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.022),material,96);this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.mesh.castShadow=true;this.transform=new THREE.Object3D();this.update();}
+ update(){this.mesh.count=this.field.drops.length;for(let i=0;i<this.mesh.count;i++){const d=this.field.drops[i];this.transform.position.set(d.x,d.y,d.z);this.transform.scale.set(1,1+Math.min(1,Math.abs(d.vy)*.18),1);this.transform.updateMatrix();this.mesh.setMatrixAt(i,this.transform.matrix);}this.mesh.instanceMatrix.needsUpdate=true;this.mesh.computeBoundingSphere();}
 }
