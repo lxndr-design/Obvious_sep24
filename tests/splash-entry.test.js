@@ -26,10 +26,11 @@ test('splash.html wires the splash entry and never references app glue',()=>{
  assert.doesNotMatch(html,/src\/main\.js/);
 });
 
-test('splash entry owns its CSS, boots SplashKit, and never imports app glue',()=>{
+test('splash entry owns its CSS, mounts the demo column, and never imports app glue',()=>{
  const entry=read('src','splash-entry.js');
  assert.match(entry,/import '\.\/splash\.css';/);
- assert.match(entry,/createSplashKit/);
+ assert.match(entry,/mountDemoColumn/); // five lazy banner sections
+ assert.match(entry,/createDotNav/); // the only other chrome
  assert.match(entry,/window\.splashkit/); // distinct global — whitewater is taken
  assert.doesNotMatch(entry,/rapier3d|@dimforge/i); // main thread never imports Rapier
  assert.doesNotMatch(entry,/import ['"]\.\/style\.css/);
@@ -37,21 +38,22 @@ test('splash entry owns its CSS, boots SplashKit, and never imports app glue',()
  assert.doesNotMatch(entry,/import ['"]\.\/entry\.js/);
 });
 
-test('splash entry wires cursor physics: controller, capture, cancel and context menu',()=>{
+test('demo column wires pointer physics per section: controller, capture, cancel, context menu',()=>{
+ const column=read('src','splash','demo','column.js');
+ assert.match(column,/createPointerController/); // the DOM-free state machine
+ assert.match(column,/pointermove/);
+ assert.match(column,/pointerdown/);
+ assert.match(column,/pointerup/);
+ assert.match(column,/pointercancel/); // drags must end even when the pointer is lost
+ assert.match(column,/setPointerCapture/); // drags survive leaving the canvas
+ assert.match(column,/contextmenu/);
+ assert.match(column,/preventDefault/); // right-drag repels, no menu
+});
+
+test('the studio editor never mounts on the demo column page but its code stays',()=>{
  const entry=read('src','splash-entry.js');
- assert.match(entry,/createPointerController/); // the DOM-free state machine
- assert.match(entry,/pointermove/);
- assert.match(entry,/pointerdown/);
- assert.match(entry,/pointerup/);
- assert.match(entry,/pointercancel/); // drags must end even when the pointer is lost
- assert.match(entry,/setPointerCapture/); // drags survive leaving the canvas
- assert.match(entry,/contextmenu/);
- assert.match(entry,/preventDefault/); // right-drag repels, no menu
- // The editor's stats HUD is the perf readout; the entry adds only the DnD
- // ghost preview beside the editor surface.
- assert.doesNotMatch(entry,/splash-stats/);
- assert.match(entry,/installGhostPreview/);
- assert.match(entry,/createEditor/);
+ assert.doesNotMatch(entry,/createEditor|installGhostPreview|editor\/panel/);
+ assert.equal(existsSync(resolve(root,'src','splash','editor','panel.js')),true,'editor code stays in the repository');
 });
 
 test('index.html keeps the birdbath entry and only gains the splash cross-link',()=>{
