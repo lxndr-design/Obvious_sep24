@@ -1,1 +1,46 @@
-*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;color:#e8eaf0;background:#0c0e12}body{overflow:hidden}a{font:inherit;color:inherit;cursor:pointer}a:focus-visible,canvas:focus-visible{outline:2px solid #6f8cff;outline-offset:3px}header{position:absolute;z-index:3;inset:0 0 auto;display:flex;align-items:center;gap:22px;padding:18px 24px;background:rgba(12,14,18,.9);border-bottom:1px solid #23262e}.brand{font-size:24px;font-weight:600;text-decoration:none}header h1{margin:0;font-size:15px;font-weight:500}header h1 small{display:block;font-size:11px;color:#8a91a3;margin-top:5px}.header-right{margin-left:auto}.text-button{font-size:13px;color:#aeb5c6;text-decoration:none;padding:9px 12px;border:1px solid #2a2e38;border-radius:9px}.text-button:hover{background:#161920}#splash-stage{position:absolute;inset:0}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}#splash-loading{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:12px;background:#0c0e12;z-index:2;text-align:center;color:#8a91a3}.splash-milestones{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:12px}.splash-milestones li::before{content:'○ '}.splash-milestones li.done{color:#bfe3c6}.splash-milestones li.done::before{content:'● '}#splash-loading.failed{color:#ff9b9b;font-size:14px;max-width:32em;line-height:1.5}@media(max-width:700px){header{padding:12px;gap:10px}.brand{font-size:20px}header h1{font-size:13px}}
+/* Splash demo column — ships only with splash-entry.js, isolated from the
+   birdbath app (never imports style.css). Five page-width 66vh banner
+   sections with proximity scroll-snap; chrome is the brand link and the
+   fixed dot rail. Typography: self-hosted Space Grotesk (public/fonts). */
+@font-face{font-family:'Space Grotesk';font-style:normal;font-weight:400 700;src:url('/fonts/SpaceGrotesk.ttf') format('truetype');font-display:swap}
+*{box-sizing:border-box}
+html{scroll-snap-type:y proximity}
+body{margin:0;background:#0c0e12;color:#e8eaf0;font-family:'Space Grotesk',Arial,Helvetica,sans-serif}
+a{font:inherit;color:inherit;cursor:pointer}
+a:focus-visible,canvas:focus-visible,button:focus-visible{outline:2px solid #6f8cff;outline-offset:3px}
+.splash-top{position:fixed;z-index:6;top:16px;left:24px}
+.brand{font-size:22px;font-weight:600;letter-spacing:.02em;text-decoration:none;mix-blend-mode:difference;color:#fff}
+.banner-sec{position:relative;height:66vh;width:100%;overflow:hidden;scroll-snap-align:start;opacity:0;transition:opacity .45s ease}
+.banner-sec.splash-ready{opacity:1}
+.banner-canvas-wrap{position:absolute;inset:0}
+.banner-canvas-wrap canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
+.splash-vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%)}
+.banner-copy{position:absolute;inset:0;z-index:2;display:grid;place-content:center;justify-items:center;text-align:center;pointer-events:none;color:var(--banner-ink,#f2f4f8);padding:0 24px}
+.banner-eyebrow{margin:0 0 12px;font-size:12px;letter-spacing:.35em;text-transform:uppercase;opacity:.72}
+.banner-name{margin:0;font-size:clamp(44px,7vw,96px);font-weight:700;letter-spacing:-.02em;line-height:1.02}
+h1.banner-name{font-size:clamp(56px,9vw,128px)}
+.banner-tagline{margin:14px 0 0;font-size:clamp(13px,1.4vw,17px);opacity:.78;max-width:36em}
+.banner-lost{position:absolute;inset:0;z-index:5;display:none;place-content:center;text-align:center;color:#ff9b9b;background:rgba(12,14,18,.88);font-size:14px;line-height:1.5;padding:0 24px;margin:0}
+.banner-sec.splash-lost .banner-lost{display:grid}
+.splash-dots{position:fixed;z-index:6;right:18px;top:50%;transform:translateY(-50%);display:grid;gap:14px;mix-blend-mode:difference;color:#fff}
+.splash-dot{width:11px;height:11px;padding:0;border-radius:50%;border:1px solid currentColor;background:transparent;opacity:.45;cursor:pointer;transition:opacity .2s,transform .2s}
+.splash-dot:hover{opacity:.9}
+.splash-dot.active{opacity:1;transform:scale(1.35)}
+.splash-panel{position:absolute;z-index:3;right:22px;bottom:22px;width:236px;padding:14px 16px 16px;background:rgba(13,15,20,.82);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.09);border-radius:14px;color:#e8eaf0}
+.splash-panel h2{margin:0 0 10px;font-size:11px;font-weight:600;letter-spacing:.28em;text-transform:uppercase;color:#8a91a3}
+.panel-row{display:grid;grid-template-columns:74px 1fr;align-items:center;gap:10px;margin:8px 0;font-size:12px}
+.panel-row label{color:#aeb5c6}
+.panel-row select{width:100%;accent-color:#6f8cff;background:#161920;color:inherit;border:1px solid #2a2e38;border-radius:7px;padding:4px 6px}
+.panel-row input[type=range]{width:100%;margin:0;accent-color:#6f8cff;height:3px;cursor:pointer}
+.panel-row output{font-size:11px;color:#8a91a3}
+.swatch-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.swatch{width:20px;height:20px;padding:0;border-radius:6px;border:2px solid transparent;cursor:pointer}
+.swatch.active{border-color:#6f8cff}
+#splash-loading{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:12px;background:#0c0e12;z-index:4;text-align:center;color:#8a91a3}
+.splash-milestones{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:12px}
+.splash-milestones li::before{content:'○ '}
+.splash-milestones li.done{color:#bfe3c6}
+.splash-milestones li.done::before{content:'● '}
+#splash-loading.failed{color:#ff9b9b;font-size:14px;max-width:32em;line-height:1.5}
+@media(prefers-reduced-motion:reduce){html{scroll-snap-type:none}.banner-sec{transition:none}.splash-dot{transition:none}}
+@media(max-width:700px){.splash-top{top:10px;left:14px}.brand{font-size:18px}.splash-dots{right:8px;gap:11px}.splash-panel{right:10px;left:10px;bottom:10px;width:auto}}
