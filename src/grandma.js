@@ -127,6 +127,28 @@ export function attachGrandmaRig(o,material=o.mesh.material){
  for(const p of o.hipPivots)root.add(p);for(const p of o.shoulderPivots)root.add(p);
  o.visualRoot=root;
 }
+const TAU=Math.PI*2;
+// Pure gait math: phase is unitless and advances with feet-on-ground travel, so
+// swing frequency follows her stride rather than the wall clock.
+export function gaitSwing(phase,offset=0){return Math.sin((((phase%1)+1)%1)*TAU+offset);}
+
+// View-side pose: swing limb pivots from the schedule's gait phase and blend,
+// bob the visual root (torso ride) twice per stride, breathe at idle. Never
+// touches mesh.position or mesh.quaternion — those are collision state.
+export function poseGrandmaGait(o,dt=1/60){
+ const root=o.visualRoot;
+ if(!root)return;
+ const seated=!!o.seated;
+ for(const p of [...(o.hipPivots??[]),...(o.shoulderPivots??[])])p.visible=!seated;
+ if(seated){root.position.y=0;return;}
+ const walking=o.walkBlend??0,phase=o.gaitPhase??0,sway=o.swayPhase??0;
+ (o.hipPivots??[]).forEach((p,i)=>{p.rotation.x=gaitSwing(phase,i*Math.PI)*.42*walking;});
+ (o.shoulderPivots??[]).forEach((p,i)=>{
+  p.rotation.x=gaitSwing(phase,i*Math.PI+Math.PI)*.28*walking;
+  p.rotation.z=(i?-1:1)*Math.sin(sway*TAU)*.045*(1-walking);
+ });
+ root.position.y=walking*(1-Math.cos(phase*TAU*2))*.006+(1-walking)*Math.sin(sway*TAU)*.006;
+}
 export function grandmaPlacement(collision,o,x,z,groundOnly=false){
  const standing=o.grandmaForms.standing,sitting=o.grandmaForms.sitting;
  const probe=(form,position,rotation,support)=>{
