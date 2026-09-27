@@ -127,6 +127,20 @@ export function attachGrandmaRig(o,material=o.mesh.material){
  for(const p of o.hipPivots)root.add(p);for(const p of o.shoulderPivots)root.add(p);
  o.visualRoot=root;
 }
+const TAU=Math.PI*2;
+// View-side idle pose: sway the shoulders and breathe the bob root from the
+// swayPhase the ecology loop ticks. Never touches mesh.position or
+// mesh.quaternion — those are collision state.
+export function poseGrandmaIdle(o){
+ const root=o.visualRoot;
+ if(!root)return;
+ const seated=!!o.seated;
+ for(const p of [...(o.hipPivots??[]),...(o.shoulderPivots??[])])p.visible=!seated;
+ if(seated){root.position.y=0;return;}
+ const sway=o.swayPhase??0;
+ (o.shoulderPivots??[]).forEach((p,i)=>{p.rotation.z=(i?-1:1)*Math.sin(sway*TAU)*.045;});
+ root.position.y=Math.sin(sway*TAU)*.006;
+}
 export function grandmaPlacement(collision,o,x,z,groundOnly=false){
  const standing=o.grandmaForms.standing,sitting=o.grandmaForms.sitting;
  const probe=(form,position,rotation,support)=>{
